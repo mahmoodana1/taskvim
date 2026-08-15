@@ -1,0 +1,18 @@
+# Cargo build directory — 789 MB of it, all reproducible with `cargo build`.
+/target/
+
+# Prebuilt release binary. Regenerate with:
+#     cargo build --release && install -m755 target/release/taskvim ~/.local/bin/
+# Kept out of git so the repo stays source-only; publish it as a GitHub
+# release asset instead if you want a downloadable build.
+/taskvim-x86_64-linux
+
+# Machine-local Claude Code permission grants — absolute paths, no value to
+# anyone else. (Also covered by the global ignore in ~/.config/git/ignore.)
+.claude/settings.local.json
+
+# Task data lives in ~/.local/share/taskvim/, never in the repo. Guard against
+# a stray copy landing here.
+data.json
+data.json.bak
+auth.json
