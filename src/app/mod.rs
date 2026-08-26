@@ -336,7 +336,7 @@ impl App {
         self.course_row = self.course_row.min(n.saturating_sub(1));
     }
 
-    // ---------------------------------------------------------------- actions
+    // -------------------------------------------------------- bounds clamping
 
     pub fn clamp(&mut self) {
         let visible = self.dash_ids().len();
