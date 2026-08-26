@@ -7,7 +7,7 @@ use rand::Rng;
 use crate::app::{App, InsertTarget, Mode, Pane, Row, View};
 use crate::due::parse_due;
 use crate::model::{LogEntry, Project, Section, Task};
-use crate::PALETTE;
+use crate::ui::theme::PALETTE;
 
 impl App {
     /// Strip only a trailing `!due` token. Used by the course modal, where the
