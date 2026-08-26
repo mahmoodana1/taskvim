@@ -1,3 +1,6 @@
+//! Due-date parsing. Kept free of ratatui so the date logic stays
+//! unit-testable in isolation.
+
 use chrono::{Datelike, Duration as CDuration, Local, Months, NaiveDate};
 
 /// Accepts: "" / none / today / tomorrow / +N / YYYY-MM-DD / MM-DD / M/D

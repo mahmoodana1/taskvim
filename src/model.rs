@@ -1,3 +1,6 @@
+//! The persistent on-disk data model: the types, plus load/save and
+//! invariant repair (`sanitize`).
+
 use std::collections::HashSet;
 use std::fs;
 use std::io;
