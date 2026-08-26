@@ -2843,3 +2843,62 @@ fn main() -> io::Result<()> {
     let _ = app.data.save();
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn today() -> NaiveDate {
+        Local::now().date_naive()
+    }
+
+    fn ymd(d: NaiveDate) -> String {
+        d.format("%Y-%m-%d").to_string()
+    }
+
+    #[test]
+    fn parse_due_clears_on_none_forms() {
+        for s in ["", "none", "clear", "-", "  NONE  "] {
+            assert_eq!(parse_due(s), Ok(None), "input: {:?}", s);
+        }
+    }
+
+    #[test]
+    fn parse_due_keywords() {
+        assert_eq!(parse_due("today"), Ok(Some(ymd(today()))));
+        assert_eq!(
+            parse_due("tomorrow"),
+            Ok(Some(ymd(today() + CDuration::days(1))))
+        );
+        assert_eq!(parse_due("tmr"), Ok(Some(ymd(today() + CDuration::days(1)))));
+    }
+
+    #[test]
+    fn parse_due_relative_offsets() {
+        assert_eq!(parse_due("+3"), Ok(Some(ymd(today() + CDuration::days(3)))));
+        assert_eq!(parse_due("+3d"), Ok(Some(ymd(today() + CDuration::days(3)))));
+        assert_eq!(parse_due("+2w"), Ok(Some(ymd(today() + CDuration::days(14)))));
+        assert_eq!(parse_due("2w"), Ok(Some(ymd(today() + CDuration::days(14)))));
+    }
+
+    #[test]
+    fn parse_due_bare_unit_shortcuts() {
+        assert_eq!(parse_due("d"), Ok(Some(ymd(today() + CDuration::days(1)))));
+        assert_eq!(parse_due("w"), Ok(Some(ymd(today() + CDuration::days(7)))));
+    }
+
+    #[test]
+    fn parse_due_absolute_dates() {
+        assert_eq!(parse_due("2026-07-10"), Ok(Some("2026-07-10".to_string())));
+        assert_eq!(parse_due("2026/07/10"), Ok(Some("2026-07-10".to_string())));
+        let expected = format!("{}-12-25", today().year());
+        assert_eq!(parse_due("12-25"), Ok(Some(expected)));
+    }
+
+    #[test]
+    fn parse_due_rejects_garbage() {
+        assert_eq!(parse_due("banana"), Err(()));
+        assert_eq!(parse_due("2026-13-45"), Err(()));
+        assert_eq!(parse_due("1-2-3-4"), Err(()));
+    }
+}
