@@ -10,9 +10,7 @@
 // Fully local — no cloud sync.
 
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::io;
-use std::path::PathBuf;
 use std::time::Duration;
 
 use chrono::{Datelike, Duration as CDuration, Local, Months, NaiveDate, Timelike};
@@ -25,7 +23,10 @@ use ratatui::widgets::{
     Block, Borders, Clear, Gauge, List, ListItem, ListState, Padding, Paragraph, Wrap,
 };
 use ratatui::{DefaultTerminal, Frame};
-use serde::{Deserialize, Serialize};
+
+mod model;
+
+use model::{Data, LogEntry, Project, Section, Task};
 
 // ---------------------------------------------------------------------------
 // Palette
@@ -46,172 +47,6 @@ const SEL_BG: Color = Color::Rgb(45, 45, 65);
 
 fn palette(idx: usize) -> Color {
     PALETTE[idx % PALETTE.len()]
-}
-
-// ---------------------------------------------------------------------------
-// Persistent data model
-// ---------------------------------------------------------------------------
-
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
-struct Task {
-    id: u64,
-    text: String,
-    #[serde(default)]
-    project: Option<u64>,
-    #[serde(default)]
-    section: Option<u64>,
-    #[serde(default)]
-    due: Option<String>, // YYYY-MM-DD
-    #[serde(default)]
-    completed: bool,
-}
-
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
-struct Section {
-    id: u64,
-    project: u64,
-    name: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
-struct Project {
-    id: u64,
-    name: String,
-    color: usize,
-}
-
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
-struct LogEntry {
-    id: u64,
-    text: String,
-    project: Option<u64>,
-    project_name: String,
-    color: usize,
-    #[serde(default)]
-    section: Option<u64>,
-    #[serde(default)]
-    section_name: String,
-    date: String, // YYYY-MM-DD
-    time: String, // HH:MM
-}
-
-#[derive(Serialize, Deserialize, Default, Clone, PartialEq)]
-struct Data {
-    #[serde(default)]
-    version: u32,
-    tasks: Vec<Task>,
-    projects: Vec<Project>,
-    #[serde(default)]
-    sections: Vec<Section>,
-    log: Vec<LogEntry>,
-    /// Ordered ids of tasks shown on the main dashboard ("pinned"/linked tasks).
-    #[serde(default)]
-    dashboard: Vec<u64>,
-    daily_goal: u32,
-    next_id: u64,
-    next_color: usize,
-}
-
-impl Data {
-    fn path() -> PathBuf {
-        dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("taskvim")
-            .join("data.json")
-    }
-
-    fn load() -> Data {
-        let mut d: Data = fs::read_to_string(Self::path())
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
-        d.sanitize();
-        d
-    }
-
-    fn save(&self) -> io::Result<()> {
-        let p = Self::path();
-        if let Some(dir) = p.parent() {
-            fs::create_dir_all(dir)?;
-        }
-        fs::write(p, serde_json::to_string_pretty(self).unwrap_or_default())
-    }
-
-    fn new_id(&mut self) -> u64 {
-        let id = self.next_id;
-        self.next_id += 1;
-        id
-    }
-
-    /// Repair any invariant violations before the app touches this Data:
-    ///   • drop projects/sections/tasks with duplicate ids (keep first);
-    ///   • push `next_id` past every id actually in use so `new_id()` can
-    ///     never hand out a value that already belongs to some record;
-    ///   • drop task refs to projects/sections that don't exist;
-    ///   • drop dangling / duplicate dashboard entries.
-    /// Root cause: an earlier cloud-sync path could leave `next_id` stale,
-    /// after which `new_id()` returned an id already used by an existing
-    /// task — every lookup then returned the wrong (usually completed) task.
-    fn sanitize(&mut self) {
-        if self.daily_goal == 0 {
-            self.daily_goal = 2;
-        }
-        if self.version < 2 {
-            self.dashboard = self.tasks.iter().map(|t| t.id).collect();
-            self.version = 2;
-        }
-
-        let mut seen = HashSet::new();
-        self.projects.retain(|p| seen.insert(p.id));
-        seen.clear();
-        self.sections.retain(|s| seen.insert(s.id));
-        seen.clear();
-        self.tasks.retain(|t| seen.insert(t.id));
-
-        let project_ids: HashSet<u64> = self.projects.iter().map(|p| p.id).collect();
-        self.sections.retain(|s| project_ids.contains(&s.project));
-        let section_ids: HashSet<u64> = self.sections.iter().map(|s| s.id).collect();
-        for t in self.tasks.iter_mut() {
-            if let Some(pid) = t.project {
-                if !project_ids.contains(&pid) {
-                    t.project = None;
-                    t.section = None;
-                }
-            }
-            if let Some(sid) = t.section {
-                if !section_ids.contains(&sid) {
-                    t.section = None;
-                }
-            }
-        }
-
-        let task_ids: HashSet<u64> = self.tasks.iter().map(|t| t.id).collect();
-        let mut seen_dash = HashSet::new();
-        self.dashboard
-            .retain(|id| task_ids.contains(id) && seen_dash.insert(*id));
-
-        let max_id = self
-            .projects
-            .iter()
-            .map(|p| p.id)
-            .chain(self.sections.iter().map(|s| s.id))
-            .chain(self.tasks.iter().map(|t| t.id))
-            .chain(self.log.iter().map(|l| l.id))
-            .max()
-            .unwrap_or(0);
-        if self.next_id <= max_id {
-            self.next_id = max_id + 1;
-        }
-    }
-
-    fn reset() -> io::Result<()> {
-        let p = Self::path();
-        if p.exists() {
-            let bak = p.with_extension("json.bak");
-            let _ = fs::rename(&p, &bak);
-        }
-        Ok(())
-    }
 }
 
 // ---------------------------------------------------------------------------
