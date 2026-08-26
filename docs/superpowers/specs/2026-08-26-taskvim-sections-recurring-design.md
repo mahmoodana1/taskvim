@@ -45,12 +45,19 @@ one removal.
 ```rust
 enum DashSection { Important, General, Agent }   // serialized lowercase
 
-struct Repeat { every: u32, unit: RepeatUnit }   // RepeatUnit = Day | Week | Month
+enum RepeatUnit { Day, Week, Month }
+
+struct Repeat {
+    every: u32,
+    unit: RepeatUnit,
+    anchor: String,   // YYYY-MM-DD, the date the repeat was set — defines the grid
+}
 
 struct Task {
     // ... existing fields ...
     dash_section: DashSection,   // #[serde(default)] -> General
     repeat: Option<Repeat>,      // #[serde(default)]
+    period: Option<String>,      // YYYY-MM-DD start of the period `completed` refers to
 }
 
 struct LogEntry {
@@ -69,7 +76,7 @@ sanitizing — unlike an id-based section it would otherwise mirror.
 Runs inside `Data::sanitize()`, alongside the existing v1 → v2 step:
 
 - Every task gets `dash_section: General` (serde default covers it).
-- Every task gets `repeat: None`.
+- Every task gets `repeat: None` and `period: None`.
 - Every existing log entry gets `task: None`.
 - `version = 3`.
 
@@ -136,28 +143,72 @@ section under the cursor; a course task linked with `p` lands in General.
 
 ### Semantics
 
-Completing a recurring task logs a commit as normal, then re-arms the **same
-task record** (`completed` stays false) with its due date advanced:
+Recurring tasks are habits, not deadlines. **They never carry a due date and
+never go overdue.** One task record exists per recurring task, forever; it is
+reset in place when the period rolls over, so two occurrences of the same task
+can never be live at once.
+
+The rules:
+
+- Completing a recurring task logs a commit exactly like any other task and sets
+  `completed = true`. It therefore **disappears from the dashboard** for the rest
+  of the period — `dash_ids()` already filters completed tasks, so this needs no
+  new code.
+- On each **tick** (the start of a new period), the task is reset:
+  `completed = false`, `period = <new period start>`. It reappears on the
+  dashboard.
+- A period that passes without a completion leaves **no trace** — no overdue
+  badge, no backlog, no carry-over. Missing Tuesday's habit does not make
+  Wednesday's harder.
+
+### Period grid (fixed calendar cadence)
+
+Ticks land on a fixed grid regardless of when — or whether — you complete the
+task. The grid is defined by `unit` and strided by `every`, starting from
+`anchor`:
+
+| unit | grid | `every: 1` | `every: N` |
+|---|---|---|---|
+| `Day` | every midnight | daily | every N days from `anchor` |
+| `Week` | Mondays | weekly, resets Monday | every N weeks from `anchor`'s Monday |
+| `Month` | the 1st | monthly, resets on the 1st | every N months from `anchor`'s month |
 
 ```
-next_due = old_due + interval
+fn period_start(today, repeat) -> NaiveDate {
+    let base  = align(repeat.anchor, repeat.unit);   // Day: as-is · Week: that Monday · Month: the 1st
+    let steps = units_between(base, align(today, repeat.unit)) / repeat.every;
+    base + steps * repeat.every * repeat.unit
+}
 ```
 
-Anchored to the old due date, not to today. A task completed late is therefore
-immediately overdue again — deliberate "refuse to let it slip" behavior.
+`units_between` counts days for `Day`, whole weeks between Mondays for `Week`,
+and calendar months for `Month` — so month arithmetic never needs end-of-month
+clamping, because the grid only ever lands on the 1st.
 
-Two consequences, both intended:
+A task is due for reset whenever `task.period != Some(period_start(today))`.
 
-- **One step per completion, no catch-up.** A daily task completed 30 days late
-  becomes due 29 days ago, not today. Each completion advances one interval.
-- **No due date, no anchor.** If a recurring task has `due: None`, the interval
-  is counted from today instead.
+### When the tick runs
 
-Month intervals clamp to the end of the target month (Jan 31 + 1 month = Feb 28
-or 29), matching how humans read "monthly".
+- At startup, in `App::new()` after `Data::load()`.
+- In the run loop, which already calls `event::poll(400ms)` — so each iteration
+  can cheaply compare today's date against the last tick date and re-run the
+  sweep when it changes. No restructuring of `run()` is needed.
 
-Undo restores the whole `Data` snapshot, so undoing a recurring completion
-restores both the old due date and the removed log entry with no special case.
+The tick is **not a user edit**: it saves via `Data::save()` directly and
+refreshes `saved_snapshot` so it never lands on the undo stack. Pressing `u`
+after midnight should undo your last real action, not the rollover.
+
+### Interactions
+
+- `t` and the `!due` suffix are rejected on a recurring task with a status
+  message; setting a repeat on a task that has a due date clears the due date.
+- The `⚠ overdue` badge and every overdue count never apply to recurring tasks.
+- Recurring tasks are **excluded from course progress** (`project_stats`). They
+  never finish, so counting them would make a course's percentage oscillate as
+  habits reset. They still feed the heatmap, streak, and daily goal on every
+  completion — that is the point of them.
+- Undo restores the whole `Data` snapshot, so undoing a recurring completion
+  restores `completed`, `period`, and the removed log entry with no special case.
 
 ### Keys and syntax
 
@@ -169,8 +220,9 @@ restores both the old due date and the removed log entry with no special case.
 
 ### Display
 
-A recurring task shows a `↻ every 3d` badge after its text, dimmed, before the
-due span.
+A recurring task shows a dimmed `↻ daily` / `↻ every 3d` / `↻ weekly` badge
+after its text, in the slot where a due span would otherwise sit — the two are
+mutually exclusive.
 
 ## Module split
 
@@ -206,8 +258,9 @@ parts that do not need a terminal:
 
 - `parse_due` — all documented formats (`2026-07-10`, `7-10`, `+3`, `today`,
   `tomorrow`, `none`) plus malformed input.
-- Recurrence math — day/week/month advance, month-end clamping, the no-due-date
-  fallback to today, and the late-completion case staying overdue.
+- `period_start` — the day/week/month grids, `every: N` striding from the
+  anchor, week alignment to Monday, month alignment to the 1st, and a period
+  boundary crossed with no completion in between (task resets, nothing logged).
 - Add-line parser — `@course`, `!due`, `#section` in any order, prefix matching,
   and text that legitimately contains `@`, `!`, or `#`.
 - Migration v2 → v3 — fields defaulted, nothing dropped, `version` bumped.
@@ -235,8 +288,9 @@ the module split requires.
 
 Stated explicitly so they can be overridden during implementation:
 
-1. Completing a recurring task advances one interval and does not skip forward
-   past today.
-2. A recurring task with no due date anchors its first interval to today.
-3. Linking a course task to the dashboard with `p` puts it in General.
-4. Section headers always render, even when empty.
+1. A recurring task's grid is anchored to the date its repeat was set, and
+   `every: 1` snaps to the natural boundary (midnight / Monday / the 1st).
+2. Recurring tasks are excluded from course progress percentages.
+3. The tick bypasses the undo stack.
+4. Linking a course task to the dashboard with `p` puts it in General.
+5. Section headers always render, even when empty.
