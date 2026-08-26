@@ -1,6 +1,8 @@
 //! The `App` state: the view/mode enums, undo/redo, and the read-only
 //! lookups and stats derived from `Data`.
 
+pub mod actions;
+
 use std::collections::HashMap;
 
 use chrono::{Datelike, Local, NaiveDate};
