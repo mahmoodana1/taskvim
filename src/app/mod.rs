@@ -2,6 +2,7 @@
 //! lookups and stats derived from `Data`.
 
 pub mod actions;
+pub mod keys;
 
 use std::collections::HashMap;
 
