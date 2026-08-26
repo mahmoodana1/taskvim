@@ -2901,4 +2901,56 @@ mod tests {
         assert_eq!(parse_due("2026-13-45"), Err(()));
         assert_eq!(parse_due("1-2-3-4"), Err(()));
     }
+
+    #[test]
+    fn parse_due_bare_month_year_shortcuts() {
+        // "mo"/"m" and "y" go through checked_add_months rather than day arithmetic, so the
+        // expected value must be computed the same way to stay correct near month-end dates
+        // (e.g. Jan 31 + 1mo clamps to Feb 28/29) and on any date the suite happens to run.
+        let expected_mo = ymd(today()
+            .checked_add_months(Months::new(1))
+            .expect("checked_add_months(1) does not overflow for any realistic 'today'"));
+        assert_eq!(parse_due("mo"), Ok(Some(expected_mo.clone())));
+        assert_eq!(parse_due("m"), Ok(Some(expected_mo)));
+
+        let expected_y = ymd(today()
+            .checked_add_months(Months::new(12))
+            .expect("checked_add_months(12) does not overflow for any realistic 'today'"));
+        assert_eq!(parse_due("y"), Ok(Some(expected_y)));
+
+        // Contract note (not exercised here, and not exercisable from a test): if
+        // `today.checked_add_months(..)` ever returned None — only possible if "today" were
+        // within about a year of chrono's NaiveDate upper bound (~262,143 CE) — `bare` would
+        // be None, the code would fall through past the bare-shortcut block, past the
+        // relative-offset parser (which also fails on "mo"/"y" since there's no leading digit
+        // to parse), and into the date-literal parser, which sees a single dash-free part and
+        // returns Err(()). `parse_due` hardcodes `today` via `Local::now()` with no injection
+        // point, so this branch cannot be triggered from a test without changing the function.
+    }
+
+    #[test]
+    fn parse_due_month_year_and_negative_offsets() {
+        // "+Nmo" / "+Ny" route through the same checked_add_months path as the bare
+        // shortcuts above.
+        let expected_2mo = ymd(today()
+            .checked_add_months(Months::new(2))
+            .expect("checked_add_months(2) does not overflow for any realistic 'today'"));
+        assert_eq!(parse_due("+2mo"), Ok(Some(expected_2mo)));
+
+        let expected_1y = ymd(today()
+            .checked_add_months(Months::new(12))
+            .expect("checked_add_months(12) does not overflow for any realistic 'today'"));
+        assert_eq!(parse_due("+1y"), Ok(Some(expected_1y)));
+
+        // Negative offsets are accepted even without a leading '+': the no-prefix path only
+        // checks for a trailing unit letter, not a leading sign, so "-3d" reaches
+        // try_relative via the `s.ends_with('d')` branch and "-3".parse::<i64>() succeeds.
+        assert_eq!(parse_due("-3d"), Ok(Some(ymd(today() - CDuration::days(3)))));
+
+        // Negative month offsets go through checked_sub_months.
+        let expected_neg_1mo = ymd(today()
+            .checked_sub_months(Months::new(1))
+            .expect("checked_sub_months(1) does not underflow for any realistic 'today'"));
+        assert_eq!(parse_due("-1mo"), Ok(Some(expected_neg_1mo)));
+    }
 }
