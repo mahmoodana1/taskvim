@@ -58,9 +58,11 @@ taskvim
 ```
 
 The included `Cargo.lock` pins dependencies known to build on rustc 1.75+, so it
-compiles on distros with older Rust. A prebuilt `taskvim-x86_64-linux` binary is
-included (needs glibc ≥ 2.39: Ubuntu 24.04+, Fedora 40+, Arch); otherwise build
-from source (~30 s).
+compiles on distros with older Rust. Building from source takes ~30 s.
+
+(A `taskvim-x86_64-linux` binary may sit in the working directory — it needs
+glibc ≥ 2.39: Ubuntu 24.04+, Fedora 40+, Arch. It is **not** tracked in git, so
+a fresh clone won't have one; build from source instead.)
 
 Data: `~/.local/share/taskvim/data.json` (respects `$XDG_DATA_HOME`), format v3.
 v0.1 and v0.2 files are migrated automatically on load — existing tasks land in
