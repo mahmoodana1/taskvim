@@ -98,7 +98,7 @@ fn sectioned(id: u64, text: &str, sec: DashSection) -> crate::model::Task {
 }
 
 #[test]
-fn dash_rows_groups_tasks_under_all_three_headers() {
+fn dash_rows_wraps_each_section_in_a_box() {
     let app = test_app(vec![
         sectioned(1, "b", DashSection::General),
         sectioned(2, "a", DashSection::Important),
@@ -108,29 +108,37 @@ fn dash_rows_groups_tasks_under_all_three_headers() {
     assert_eq!(
         app.dash_rows(),
         vec![
-            DashRow::Section(DashSection::Important),
+            DashRow::SectionTop(DashSection::Important),
             DashRow::Task(2),
-            DashRow::Section(DashSection::General),
+            DashRow::SectionBottom(DashSection::Important),
+            DashRow::SectionTop(DashSection::General),
             DashRow::Task(1),
-            DashRow::Section(DashSection::Agent),
+            DashRow::SectionBottom(DashSection::General),
+            DashRow::SectionTop(DashSection::Agent),
             DashRow::Task(3),
+            DashRow::SectionBottom(DashSection::Agent),
         ]
     );
 }
 
 #[test]
-fn dash_rows_renders_empty_section_headers() {
+fn an_empty_section_still_renders_a_full_box() {
     let app = test_app(vec![sectioned(1, "only", DashSection::General)]);
 
     assert_eq!(
         app.dash_rows(),
         vec![
-            DashRow::Section(DashSection::Important),
-            DashRow::Section(DashSection::General),
+            DashRow::SectionTop(DashSection::Important),
+            DashRow::SectionFill(DashSection::Important),
+            DashRow::SectionBottom(DashSection::Important),
+            DashRow::SectionTop(DashSection::General),
             DashRow::Task(1),
-            DashRow::Section(DashSection::Agent),
+            DashRow::SectionBottom(DashSection::General),
+            DashRow::SectionTop(DashSection::Agent),
+            DashRow::SectionFill(DashSection::Agent),
+            DashRow::SectionBottom(DashSection::Agent),
         ],
-        "empty sections still render so 1/2/3 always have a visible target"
+        "empty sections get a blank interior row so the box is never collapsed"
     );
 }
 
@@ -142,24 +150,50 @@ fn dash_rows_preserves_dashboard_order_within_a_section() {
     ]);
     app.data.dashboard = vec![2, 1];
 
+    let rows = app.dash_rows();
+    let general: Vec<&DashRow> = rows
+        .iter()
+        .skip_while(|r| **r != DashRow::SectionTop(DashSection::General))
+        .take_while(|r| **r != DashRow::SectionBottom(DashSection::General))
+        .collect();
+
     assert_eq!(
-        app.dash_rows(),
+        general,
         vec![
-            DashRow::Section(DashSection::Important),
-            DashRow::Section(DashSection::General),
-            DashRow::Task(2),
-            DashRow::Task(1),
-            DashRow::Section(DashSection::Agent),
+            &DashRow::SectionTop(DashSection::General),
+            &DashRow::Task(2),
+            &DashRow::Task(1),
         ]
     );
 }
 
 #[test]
+fn selected_task_is_none_on_any_box_chrome_row() {
+    let mut app = test_app(vec![sectioned(1, "x", DashSection::General)]);
+    // rows: 0 top(Imp) 1 fill(Imp) 2 bottom(Imp) 3 top(Gen) 4 task 5 bottom(Gen) …
+    for chrome in [0usize, 1, 2, 3, 5] {
+        app.task_sel = chrome;
+        assert_eq!(app.selected_task(), None, "row {} is chrome", chrome);
+    }
+    app.task_sel = 4;
+    assert_eq!(app.selected_task(), Some(1));
+}
+
+#[test]
+fn selected_section_still_walks_back_to_its_header() {
+    let mut app = test_app(vec![sectioned(1, "x", DashSection::Agent)]);
+    let rows = app.dash_rows();
+    let pos = rows.iter().position(|r| *r == DashRow::Task(1)).unwrap();
+    app.task_sel = pos;
+    assert_eq!(app.selected_section(), DashSection::Agent);
+}
+
+#[test]
 fn selected_task_is_none_on_a_section_header() {
     let mut app = test_app(vec![sectioned(1, "x", DashSection::General)]);
-    app.task_sel = 0; // Important header
+    app.task_sel = 0; // Important box top
     assert_eq!(app.selected_task(), None);
-    app.task_sel = 2; // the task under General
+    app.task_sel = 4; // the task under General
     assert_eq!(app.selected_task(), Some(1));
 }
 
@@ -169,7 +203,8 @@ fn set_dash_section_moves_the_task_and_follows_the_cursor() {
         sectioned(1, "a", DashSection::General),
         sectioned(2, "b", DashSection::General),
     ]);
-    app.task_sel = 2; // first task under General
+    app.task_sel = 5; // one of the tasks under General (exact row is irrelevant here —
+                       // set_dash_section acts on the task id, not the cursor)
 
     app.set_dash_section(1, DashSection::Important);
 
@@ -177,7 +212,7 @@ fn set_dash_section_moves_the_task_and_follows_the_cursor() {
     assert_eq!(
         app.dash_rows()[1],
         DashRow::Task(1),
-        "task 1 now sits directly under the Important header"
+        "task 1 now sits directly under the Important box top"
     );
     assert_eq!(app.task_sel, 1, "cursor follows the task it just moved");
 }
@@ -189,17 +224,18 @@ fn moving_a_task_down_stays_inside_its_section() {
         sectioned(2, "second", DashSection::General),
         sectioned(3, "agent task", DashSection::Agent),
     ]);
-    // rows: 0 Important · 1 General · 2 task1 · 3 task2 · 4 Agent · 5 task3
-    app.task_sel = 3; // "second"
+    // rows: 0 top(Imp) 1 fill(Imp) 2 bottom(Imp) 3 top(Gen) 4 task1 5 task2
+    //       6 bottom(Gen) 7 top(Agent) 8 task3 9 bottom(Agent)
+    app.task_sel = 5; // "second"
 
     app.move_dash_task(1);
 
     assert_eq!(
-        app.dash_rows()[4],
-        DashRow::Section(DashSection::Agent),
+        app.dash_rows()[7],
+        DashRow::SectionTop(DashSection::Agent),
         "task 2 did not leak into the Agent section"
     );
-    assert_eq!(app.task_sel, 3, "cursor did not move — already last in section");
+    assert_eq!(app.task_sel, 5, "cursor did not move — already last in section");
 }
 
 #[test]
@@ -208,13 +244,14 @@ fn moving_a_task_up_swaps_with_its_section_sibling() {
         sectioned(1, "first", DashSection::General),
         sectioned(2, "second", DashSection::General),
     ]);
-    app.task_sel = 3; // "second"
+    // rows: 0 top(Imp) 1 fill(Imp) 2 bottom(Imp) 3 top(Gen) 4 task1 5 task2 …
+    app.task_sel = 5; // "second"
 
     app.move_dash_task(-1);
 
-    assert_eq!(app.dash_rows()[2], DashRow::Task(2));
-    assert_eq!(app.dash_rows()[3], DashRow::Task(1));
-    assert_eq!(app.task_sel, 2, "cursor follows the moved task");
+    assert_eq!(app.dash_rows()[4], DashRow::Task(2));
+    assert_eq!(app.dash_rows()[5], DashRow::Task(1));
+    assert_eq!(app.task_sel, 4, "cursor follows the moved task");
 }
 
 #[test]

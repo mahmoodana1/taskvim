@@ -140,13 +140,11 @@ pub fn draw_task_sidebar(f: &mut Frame, app: &App, area: Rect) {
     let items: Vec<ListItem> = rows
         .iter()
         .map(|row| match row {
-            DashRow::Section(sec) => {
+            DashRow::SectionTop(sec) => {
                 let count = app
                     .dash_ids()
                     .iter()
-                    .filter(|id| {
-                        app.task(**id).map(|t| t.dash_section == *sec).unwrap_or(false)
-                    })
+                    .filter(|id| app.task(**id).map(|t| t.dash_section == *sec).unwrap_or(false))
                     .count();
                 ListItem::new(Line::from(vec![
                     Span::styled(
@@ -160,6 +158,9 @@ pub fn draw_task_sidebar(f: &mut Frame, app: &App, area: Rect) {
                 Some(t) => task_line(app, t, false, true),
                 None => ListItem::new(Line::from("")),
             },
+            DashRow::SectionFill(_) | DashRow::SectionBottom(_) => {
+                ListItem::new(Line::from(""))
+            }
         })
         .collect();
 

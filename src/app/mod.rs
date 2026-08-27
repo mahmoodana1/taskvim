@@ -36,12 +36,32 @@ pub enum Row {
     Task(u64),
 }
 
-/// A row on the main dashboard: the three fixed section headers interleaved
-/// with their tasks. Mirrors `Row`, which does the same job inside a course.
+/// A row on the main dashboard. Each section renders as a bordered box, so the
+/// row list includes the box chrome — this keeps `App.task_sel` 1:1 with the
+/// items ratatui's `ListState` indexes, which is what makes scrolling and
+/// selection work across section boundaries.
+///
+/// `SectionFill` and `SectionBottom` are never selectable; movement skips them.
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum DashRow {
-    Section(DashSection),
+    /// `┌ IMPORTANT ──── 2 ┐`
+    SectionTop(DashSection),
+    /// `│ buy groceries    │`
     Task(u64),
+    /// `│                  │` — the blank interior of an empty section.
+    SectionFill(DashSection),
+    /// `└──────────────────┘`
+    SectionBottom(DashSection),
+}
+
+impl DashRow {
+    /// Can the cursor land here? Box chrome cannot.
+    ///
+    /// Unused until Task 2 wires navigation to skip chrome rows.
+    #[allow(dead_code)]
+    pub fn is_selectable(&self) -> bool {
+        matches!(self, DashRow::SectionTop(_) | DashRow::Task(_))
+    }
 }
 
 #[derive(PartialEq, Clone)]
@@ -330,20 +350,25 @@ impl App {
         self.data.dashboard.contains(&tid)
     }
 
-    /// Dashboard rows in display order. `data.dashboard` remains the source of
-    /// truth for task *order*; the section is a property of the task, so this
-    /// walks the dashboard once per section and preserves relative order.
-    /// Empty section headers are kept so 1/2/3 always have a visible target.
+    /// Dashboard rows in display order, including section-box chrome.
+    /// `data.dashboard` remains the source of truth for task *order*; the
+    /// section is a property of the task, so this walks the dashboard once per
+    /// section and preserves relative order.
     pub fn dash_rows(&self) -> Vec<DashRow> {
         let visible = self.dash_ids();
-        let mut rows = Vec::with_capacity(visible.len() + DashSection::ALL.len());
+        let mut rows = Vec::with_capacity(visible.len() + DashSection::ALL.len() * 3);
         for sec in DashSection::ALL {
-            rows.push(DashRow::Section(sec));
+            rows.push(DashRow::SectionTop(sec));
+            let before = rows.len();
             for id in &visible {
                 if self.task(*id).map(|t| t.dash_section == sec).unwrap_or(false) {
                     rows.push(DashRow::Task(*id));
                 }
             }
+            if rows.len() == before {
+                rows.push(DashRow::SectionFill(sec));
+            }
+            rows.push(DashRow::SectionBottom(sec));
         }
         rows
     }
@@ -361,7 +386,7 @@ impl App {
     pub fn selected_section(&self) -> DashSection {
         let rows = self.dash_rows();
         for i in (0..=self.task_sel.min(rows.len().saturating_sub(1))).rev() {
-            if let Some(DashRow::Section(s)) = rows.get(i) {
+            if let Some(DashRow::SectionTop(s)) = rows.get(i) {
                 return *s;
             }
         }
