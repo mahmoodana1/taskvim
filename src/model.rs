@@ -50,7 +50,6 @@ pub struct Repeat {
 
 impl Repeat {
     /// "daily" · "weekly" · "every 3d" · "every 2w" · "monthly"
-    #[allow(dead_code)] // consumed by Task 22 (the `~` repeat menu / task display)
     pub fn label(&self) -> String {
         let n = self.every.max(1);
         match (n, self.unit) {

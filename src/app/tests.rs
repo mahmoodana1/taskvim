@@ -339,3 +339,67 @@ fn unlinking_a_task_leaves_its_section_alone() {
         "section survives an unlink, so re-linking doesn't lose it"
     );
 }
+
+#[test]
+fn completing_a_habit_logs_a_commit_and_hides_it() {
+    let mut app = test_app(vec![habit(1, "water plants", 1, RepeatUnit::Day, "2026-08-01")]);
+
+    app.toggle_complete(1);
+
+    assert_eq!(app.data.log.len(), 1, "habits feed the heatmap like anything else");
+    assert!(app.data.tasks[0].completed);
+    assert!(
+        app.dash_ids().is_empty(),
+        "done for this period, so it disappears from the dashboard"
+    );
+}
+
+#[test]
+fn habits_are_excluded_from_course_progress() {
+    let mut app = test_app(vec![]);
+    app.data.projects.push(crate::model::Project {
+        id: 7,
+        name: "Algorithms 2".into(),
+        color: 0,
+    });
+
+    let mut one_off = task(1, "lecture 7");
+    one_off.project = Some(7);
+    one_off.completed = true;
+
+    let mut h = habit(2, "review flashcards", 1, RepeatUnit::Day, "2026-08-01");
+    h.project = Some(7);
+
+    app.data.tasks = vec![one_off, h];
+
+    assert_eq!(
+        app.project_stats(7),
+        (1, 1),
+        "the habit is not counted — it never finishes, so it would make the bar oscillate"
+    );
+}
+
+#[test]
+fn setting_a_due_date_on_a_habit_is_refused() {
+    let mut app = test_app(vec![habit(1, "water plants", 1, RepeatUnit::Day, "2026-08-01")]);
+
+    app.apply_due(1, Some("2026-09-01".to_string()));
+
+    assert_eq!(app.data.tasks[0].due, None, "habits never carry a due date");
+}
+
+#[test]
+fn setting_a_repeat_clears_an_existing_due_date() {
+    let mut app = test_app(vec![task(1, "water plants")]);
+    app.data.tasks[0].due = Some("2026-09-01".to_string());
+
+    app.set_repeat(1, Some(Repeat {
+        every: 1,
+        unit: RepeatUnit::Day,
+        anchor: "2026-08-26".to_string(),
+    }));
+
+    assert_eq!(app.data.tasks[0].due, None);
+    assert!(app.data.tasks[0].repeat.is_some());
+    assert!(app.data.tasks[0].period.is_some(), "stamped immediately");
+}

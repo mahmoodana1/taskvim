@@ -257,10 +257,18 @@ impl App {
         self.data.tasks.iter().find(|t| t.id == id)
     }
 
-    /// (done, total) for a project: done = logged completions, total = done + pending
+    /// (done, total) for a project. Recurring tasks are excluded: they never
+    /// finish, so counting them would make the progress bar oscillate every
+    /// time a habit resets.
     pub fn project_stats(&self, pid: u64) -> (u32, u32) {
-        let completed = self.data.tasks.iter().filter(|t| t.project == Some(pid) && t.completed).count() as u32;
-        let pending = self.data.tasks.iter().filter(|t| t.project == Some(pid) && !t.completed).count() as u32;
+        let relevant = || {
+            self.data
+                .tasks
+                .iter()
+                .filter(|t| t.project == Some(pid) && t.repeat.is_none())
+        };
+        let completed = relevant().filter(|t| t.completed).count() as u32;
+        let pending = relevant().filter(|t| !t.completed).count() as u32;
         (completed, completed + pending)
     }
 
@@ -269,7 +277,7 @@ impl App {
         self.data
             .tasks
             .iter()
-            .filter(|t| t.project == Some(pid) && !t.completed)
+            .filter(|t| t.project == Some(pid) && !t.completed && t.repeat.is_none())
             .filter(|t| {
                 t.due
                     .as_deref()

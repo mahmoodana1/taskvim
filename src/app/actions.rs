@@ -6,7 +6,7 @@ use rand::Rng;
 
 use crate::app::{App, DashRow, InsertTarget, Mode, Pane, Row, View};
 use crate::due::parse_due;
-use crate::model::{DashSection, LogEntry, Project, Section, Task, COLOR_COUNT};
+use crate::model::{DashSection, LogEntry, Project, Repeat, Section, Task, COLOR_COUNT};
 
 impl App {
     /// Strip only a trailing `!due` token. Used by the course modal, where the
@@ -403,16 +403,7 @@ impl App {
                 self.add_section(project, buf.trim().to_string())
             }
             InsertTarget::Due { task } => match parse_due(buf.trim()) {
-                Ok(due) => {
-                    if let Some(t) = self.data.tasks.iter_mut().find(|t| t.id == task) {
-                        t.due = due.clone();
-                        self.status = match due {
-                            Some(d) => format!("due date set: {}", d),
-                            None => String::from("due date cleared"),
-                        };
-                        self.save_quiet();
-                    }
-                }
+                Ok(due) => self.apply_due(task, due),
                 Err(_) => {
                     self.status =
                         String::from("bad date — try 2026-07-10, 7-10, +3, tomorrow, or none")
@@ -466,6 +457,11 @@ impl App {
     }
 
     pub fn apply_due(&mut self, task: u64, due: Option<String>) {
+        if self.task(task).map(|t| t.repeat.is_some()).unwrap_or(false) {
+            self.status =
+                String::from("recurring tasks don't take due dates — press ~ to change the repeat");
+            return;
+        }
         if let Some(t) = self.data.tasks.iter_mut().find(|t| t.id == task) {
             t.due = due.clone();
             self.status = match due {
@@ -475,6 +471,35 @@ impl App {
             self.save_quiet();
         }
         self.mode = Mode::Normal;
+    }
+
+    /// Set or clear a task's repeat. Setting one clears the due date — the two
+    /// are mutually exclusive — and stamps the current period immediately so
+    /// the task doesn't reset on the very next tick.
+    #[allow(dead_code)] // consumed by Task 22 (the `~` repeat menu)
+    pub fn set_repeat(&mut self, tid: u64, repeat: Option<Repeat>) {
+        let today = Local::now().date_naive();
+        let Some(t) = self.data.tasks.iter_mut().find(|t| t.id == tid) else {
+            return;
+        };
+        let status = match &repeat {
+            Some(r) => {
+                t.due = None;
+                t.period = Some(
+                    crate::due::period_start(today, r)
+                        .format("%Y-%m-%d")
+                        .to_string(),
+                );
+                format!("repeats {}", r.label())
+            }
+            None => {
+                t.period = None;
+                String::from("repeat cleared")
+            }
+        };
+        t.repeat = repeat;
+        self.status = status;
+        self.save_quiet();
     }
 
     /// Move a dashboard task into one of the fixed sections and keep the
