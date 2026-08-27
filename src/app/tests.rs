@@ -626,3 +626,73 @@ fn clamp_bounds_course_sel_against_visible_courses() {
 
     assert_eq!(app.course_sel, 0);
 }
+
+/// A course with two tasks, both on the dashboard, plus a second course whose
+/// task must stay untouched.
+fn app_with_course() -> App {
+    let mut a = test_app(vec![]);
+    a.data.projects = vec![course(1, "Stats"), course(2, "Algo")];
+    let mut t1 = task(10, "lab 2");
+    t1.project = Some(1);
+    let mut t2 = task(11, "quiz 4");
+    t2.project = Some(1);
+    let mut other = task(12, "lecture");
+    other.project = Some(2);
+    a.data.tasks = vec![t1, t2, other];
+    a.data.dashboard = vec![10, 11, 12];
+    a
+}
+
+#[test]
+fn archiving_unlinks_and_flags_only_that_courses_tasks() {
+    let mut app = app_with_course();
+
+    app.archive_course(1);
+
+    assert!(app.data.projects[0].archived);
+    assert_eq!(app.data.dashboard, vec![12], "only the other course's task left");
+    assert!(app.data.tasks[0].relink);
+    assert!(app.data.tasks[1].relink);
+    assert!(!app.data.tasks[2].relink, "the other course is untouched");
+}
+
+#[test]
+fn unarchiving_relinks_exactly_the_flagged_tasks() {
+    let mut app = app_with_course();
+    app.archive_course(1);
+
+    app.unarchive_course(1);
+
+    assert!(!app.data.projects[0].archived);
+    assert!(app.data.dashboard.contains(&10));
+    assert!(app.data.dashboard.contains(&11));
+    assert!(!app.data.tasks[0].relink, "flag is cleared after restoring");
+}
+
+#[test]
+fn unarchiving_skips_a_task_completed_while_archived() {
+    let mut app = app_with_course();
+    app.archive_course(1);
+    app.data.tasks[0].completed = true;
+
+    app.unarchive_course(1);
+
+    assert!(!app.data.dashboard.contains(&10), "finished work stays finished");
+    assert!(app.data.dashboard.contains(&11));
+    assert!(!app.data.tasks[0].relink, "flag cleared either way");
+}
+
+#[test]
+fn unarchiving_does_not_double_add_a_manually_relinked_task() {
+    let mut app = app_with_course();
+    app.archive_course(1);
+    app.data.dashboard.push(10); // user re-linked it by hand with p
+
+    app.unarchive_course(1);
+
+    assert_eq!(
+        app.data.dashboard.iter().filter(|id| **id == 10).count(),
+        1,
+        "task 10 appears exactly once"
+    );
+}

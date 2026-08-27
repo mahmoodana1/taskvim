@@ -76,6 +76,75 @@ impl App {
         self.save_quiet();
     }
 
+    /// Archive a course: hide it, and take its tasks off the dashboard while
+    /// remembering which ones were there so `unarchive_course` can put exactly
+    /// those back.
+    /// Unused until the archive keys land.
+    #[allow(dead_code)]
+    pub fn archive_course(&mut self, pid: u64) {
+        let dash = self.data.dashboard.clone();
+        let ids: Vec<u64> = self
+            .data
+            .tasks
+            .iter()
+            .filter(|t| t.project == Some(pid) && dash.contains(&t.id))
+            .map(|t| t.id)
+            .collect();
+
+        for t in self.data.tasks.iter_mut() {
+            if ids.contains(&t.id) {
+                t.relink = true;
+            }
+        }
+        self.data.dashboard.retain(|id| !ids.contains(id));
+
+        if let Some(p) = self.data.projects.iter_mut().find(|p| p.id == pid) {
+            p.archived = true;
+        }
+        self.status = format!(
+            "archived — {} task{} unlinked · X: open the archive",
+            ids.len(),
+            if ids.len() == 1 { "" } else { "s" }
+        );
+        self.clamp();
+        self.save_quiet();
+    }
+
+    /// Restore an archived course and re-link the tasks that were on the
+    /// dashboard when it was archived. Skips anything completed in the
+    /// meantime, and anything the user already re-linked by hand.
+    /// Unused until the archive keys land.
+    #[allow(dead_code)]
+    pub fn unarchive_course(&mut self, pid: u64) {
+        let mut to_link: Vec<u64> = Vec::new();
+        for t in self.data.tasks.iter_mut() {
+            if t.project == Some(pid) && t.relink {
+                t.relink = false;
+                if !t.completed {
+                    to_link.push(t.id);
+                }
+            }
+        }
+        let mut restored = 0usize;
+        for id in to_link {
+            if !self.data.dashboard.contains(&id) {
+                self.data.dashboard.push(id);
+                restored += 1;
+            }
+        }
+
+        if let Some(p) = self.data.projects.iter_mut().find(|p| p.id == pid) {
+            p.archived = false;
+        }
+        self.status = format!(
+            "restored — {} task{} back on the dashboard",
+            restored,
+            if restored == 1 { "" } else { "s" }
+        );
+        self.clamp();
+        self.save_quiet();
+    }
+
     pub fn add_section(&mut self, pid: u64, name: String) {
         if name.is_empty() {
             return;
