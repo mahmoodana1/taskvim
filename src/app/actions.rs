@@ -159,8 +159,7 @@ impl App {
                 section_name: sname,
                 date: now.format("%Y-%m-%d").to_string(),
                 time: now.format("%H:%M").to_string(),
-                // Wiring the back-link is Task 10/11's job; leave unset here.
-                task: None,
+                task: Some(tid),
             });
             let done = self.today_count();
             self.status = if done >= self.data.daily_goal {
@@ -176,7 +175,18 @@ impl App {
             };
         } else {
             // Task is being uncompleted
-            self.data.log.retain(|e| !(e.text == text && e.project == project && e.section == section));
+            // Remove exactly ONE entry — the newest match. `retain` used to
+            // delete every entry with the same text, wiping months of history
+            // from the heatmap the first time a repeated task was un-completed.
+            // Entries migrated from v2 have `task: None` and fall back to the
+            // old text comparison, still capped at one removal.
+            let pos = self.data.log.iter().rposition(|e| match e.task {
+                Some(id) => id == tid,
+                None => e.text == text && e.project == project && e.section == section,
+            });
+            if let Some(pos) = pos {
+                self.data.log.remove(pos);
+            }
             self.status = String::from("task marked as pending");
         }
         self.clamp();

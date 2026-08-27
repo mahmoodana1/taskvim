@@ -4,6 +4,9 @@
 pub mod actions;
 pub mod keys;
 
+#[cfg(test)]
+mod tests;
+
 use std::collections::HashMap;
 
 use chrono::{Datelike, Local, NaiveDate};
@@ -81,7 +84,11 @@ pub const UNDO_HISTORY_LIMIT: usize = 100;
 
 impl App {
     pub fn new() -> App {
-        let data = Data::load();
+        App::with_data(Data::load())
+    }
+
+    /// Build an App around already-loaded data. Used by `new()` and by tests.
+    pub fn with_data(data: Data) -> App {
         let saved_snapshot = data.clone();
         App {
             data,
