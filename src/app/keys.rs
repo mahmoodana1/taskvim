@@ -5,7 +5,7 @@ use chrono::{Datelike, Local};
 use crossterm::event::{KeyCode, KeyModifiers};
 
 use crate::app::{App, InsertTarget, Mode, Pane, Row, View};
-use crate::model::Data;
+use crate::model::{Data, DashSection};
 
 impl App {
     pub fn handle_key(&mut self, code: KeyCode, mods: KeyModifiers) {
@@ -347,7 +347,7 @@ impl App {
             // list movement
             KeyCode::Char('j') | KeyCode::Down => match self.pane {
                 Pane::Tasks => {
-                    if self.task_sel + 1 < self.dash_ids().len() {
+                    if self.task_sel + 1 < self.dash_rows().len() {
                         self.task_sel += 1;
                     }
                 }
@@ -372,7 +372,7 @@ impl App {
                 }
             }
             KeyCode::Char('G') => match self.pane {
-                Pane::Tasks => self.task_sel = self.dash_ids().len().saturating_sub(1),
+                Pane::Tasks => self.task_sel = self.dash_rows().len().saturating_sub(1),
                 Pane::Courses => self.course_sel = self.data.projects.len().saturating_sub(1),
             },
 
@@ -412,7 +412,7 @@ impl App {
             // open course modal
             KeyCode::Enter | KeyCode::Char(' ') => match self.pane {
                 Pane::Tasks => {
-                    if let Some(tid) = self.dash_ids().get(self.task_sel).copied() {
+                    if let Some(tid) = self.selected_task() {
                         self.toggle_complete(tid);
                     }
                 }
@@ -426,17 +426,33 @@ impl App {
 
             KeyCode::Char('c') => {
                 if self.pane == Pane::Tasks {
-                    if let Some(tid) = self.dash_ids().get(self.task_sel).copied() {
+                    if let Some(tid) = self.selected_task() {
                         self.make_priority(tid);
                     }
                 }
             }
             KeyCode::Char('u') => self.undo(),
 
+            // move a task into a fixed dashboard section
+            KeyCode::Char('1') | KeyCode::Char('2') | KeyCode::Char('3') => {
+                if self.pane == Pane::Tasks {
+                    if let Some(tid) = self.selected_task() {
+                        let sec = match code {
+                            KeyCode::Char('1') => DashSection::Important,
+                            KeyCode::Char('2') => DashSection::General,
+                            _ => DashSection::Agent,
+                        };
+                        self.set_dash_section(tid, sec);
+                    } else {
+                        self.status = String::from("put the cursor on a task first");
+                    }
+                }
+            }
+
             // rename / due on dashboard tasks & courses
             KeyCode::Char('e') => match self.pane {
                 Pane::Tasks => {
-                    if let Some(tid) = self.dash_ids().get(self.task_sel).copied() {
+                    if let Some(tid) = self.selected_task() {
                         let pre = self.task(tid).map(|t| t.text.clone()).unwrap_or_default();
                         self.mode = Mode::Insert(InsertTarget::RenameTask { task: tid }, pre);
                     }
@@ -450,7 +466,7 @@ impl App {
             },
             KeyCode::Char('t') => {
                 if self.pane == Pane::Tasks {
-                    if let Some(tid) = self.dash_ids().get(self.task_sel).copied() {
+                    if let Some(tid) = self.selected_task() {
                         let pre = self.task(tid).and_then(|t| t.due.clone()).unwrap_or_default();
                         self.mode = Mode::Insert(InsertTarget::Due { task: tid }, pre);
                     }
@@ -462,7 +478,7 @@ impl App {
                 if pend == Some('d') {
                     match self.pane {
                         Pane::Tasks => {
-                            if let Some(tid) = self.dash_ids().get(self.task_sel).copied() {
+                            if let Some(tid) = self.selected_task() {
                                 let has_course =
                                     self.task(tid).map(|t| t.project.is_some()).unwrap_or(false);
                                 if has_course {
@@ -490,7 +506,7 @@ impl App {
             }
             KeyCode::Char('D') => {
                 if self.pane == Pane::Tasks {
-                    if let Some(tid) = self.dash_ids().get(self.task_sel).copied() {
+                    if let Some(tid) = self.selected_task() {
                         self.delete_task(tid);
                     }
                 }

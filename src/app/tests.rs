@@ -155,3 +155,22 @@ fn selected_task_is_none_on_a_section_header() {
     app.task_sel = 2; // the task under General
     assert_eq!(app.selected_task(), Some(1));
 }
+
+#[test]
+fn set_dash_section_moves_the_task_and_follows_the_cursor() {
+    let mut app = test_app(vec![
+        sectioned(1, "a", DashSection::General),
+        sectioned(2, "b", DashSection::General),
+    ]);
+    app.task_sel = 2; // first task under General
+
+    app.set_dash_section(1, DashSection::Important);
+
+    assert_eq!(app.data.tasks[0].dash_section, DashSection::Important);
+    assert_eq!(
+        app.dash_rows()[1],
+        DashRow::Task(1),
+        "task 1 now sits directly under the Important header"
+    );
+    assert_eq!(app.task_sel, 1, "cursor follows the task it just moved");
+}

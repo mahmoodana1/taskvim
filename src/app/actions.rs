@@ -4,9 +4,9 @@
 use chrono::{Duration as CDuration, Local, Months};
 use rand::Rng;
 
-use crate::app::{App, InsertTarget, Mode, Pane, Row, View};
+use crate::app::{App, DashRow, InsertTarget, Mode, Pane, Row, View};
 use crate::due::parse_due;
-use crate::model::{LogEntry, Project, Section, Task, COLOR_COUNT};
+use crate::model::{DashSection, LogEntry, Project, Section, Task, COLOR_COUNT};
 
 impl App {
     /// Strip only a trailing `!due` token. Used by the course modal, where the
@@ -486,6 +486,31 @@ impl App {
             self.save_quiet();
         }
         self.mode = Mode::Normal;
+    }
+
+    /// Move a dashboard task into one of the fixed sections and keep the
+    /// cursor on it as it jumps to its new row.
+    pub fn set_dash_section(&mut self, tid: u64, sec: DashSection) {
+        let Some(t) = self.data.tasks.iter_mut().find(|t| t.id == tid) else {
+            return;
+        };
+        if t.dash_section == sec {
+            self.status = format!("already in {}", sec.title());
+            return;
+        }
+        t.dash_section = sec;
+        if !self.data.dashboard.contains(&tid) {
+            self.data.dashboard.push(tid);
+        }
+        if let Some(pos) = self
+            .dash_rows()
+            .iter()
+            .position(|r| *r == DashRow::Task(tid))
+        {
+            self.task_sel = pos;
+        }
+        self.status = format!("moved to {}", sec.title());
+        self.save_quiet();
     }
 
     pub fn open_course(&mut self, pid: u64) {
