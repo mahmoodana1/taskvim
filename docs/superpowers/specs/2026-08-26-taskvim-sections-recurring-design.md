@@ -31,9 +31,17 @@ goal, and course percentages all silently lose history — when it is
 un-completed once. Recurring tasks complete the same text repeatedly by design,
 which turns this from rare into routine.
 
-**B — daily-goal miscount (`src/main.rs:492`).** `dash_completed_today()` joins
-log entries to dashboard tasks by text, so two tasks with the same text
-double-count, and unlinking a task retroactively changes today's number.
+**B — daily-goal misattribution (`src/main.rs:492`).** `dash_completed_today()`
+joins log entries to dashboard tasks by text. Completing a task that is *not* on
+the dashboard therefore still counts toward today's total whenever its text
+happens to match a task that is — and unlinking a task retroactively changes
+today's number.
+
+(An earlier draft of this spec described B as double-counting two same-named
+dashboard tasks. That was wrong: the join is a per-entry boolean, so a single
+completion can only ever contribute 0 or 1. The defect is misattribution, not
+multiplication. Caught while writing the regression test, which passed against
+the unfixed code until it was rewritten around the real scenario.)
 
 **Fix:** add `LogEntry.task: Option<u64>` and match on it. Un-complete removes
 **at most one** entry — the newest whose `task` matches. Entries migrated from
