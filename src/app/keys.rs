@@ -239,12 +239,13 @@ impl App {
             }
             KeyCode::Char('G') => self.course_row = rows.len().saturating_sub(1),
             KeyCode::Tab => {
-                // cycle to the next course
-                if let Some(i) = self.data.projects.iter().position(|p| p.id == pid) {
-                    let next = (i + 1) % self.data.projects.len();
-                    let nid = self.data.projects[next].id;
+                // cycle to the next course, skipping archived ones
+                let visible: Vec<u64> = self.visible_courses().iter().map(|p| p.id).collect();
+                if !visible.is_empty() {
+                    let cur = visible.iter().position(|id| *id == pid);
+                    let next = cur.map(|i| (i + 1) % visible.len()).unwrap_or(0);
                     self.course_sel = next;
-                    self.open_course(nid);
+                    self.open_course(visible[next]);
                 }
             }
 
@@ -393,7 +394,7 @@ impl App {
             KeyCode::Char('j') | KeyCode::Down => match self.pane {
                 Pane::Tasks => self.step_dash_cursor(1),
                 Pane::Courses => {
-                    if self.course_sel + 1 < self.data.projects.len() {
+                    if self.course_sel + 1 < self.visible_courses().len() {
                         self.course_sel += 1;
                     }
                 }
@@ -414,7 +415,7 @@ impl App {
             }
             KeyCode::Char('G') => match self.pane {
                 Pane::Tasks => self.task_sel = self.last_dash_row(),
-                Pane::Courses => self.course_sel = self.data.projects.len().saturating_sub(1),
+                Pane::Courses => self.course_sel = self.visible_courses().len().saturating_sub(1),
             },
 
             // reorder dashboard
@@ -435,11 +436,11 @@ impl App {
                 Pane::Courses => self.mode = Mode::Insert(InsertTarget::Course, String::new()),
             },
             KeyCode::Char('A') => {
-                if let Some(p) = self.data.projects.get(self.course_sel) {
+                if let Some(pid) = self.selected_course() {
                     if self.pane == Pane::Courses {
                         self.mode = Mode::Insert(
                             InsertTarget::CourseTask {
-                                project: p.id,
+                                project: pid,
                                 section: None,
                             },
                             String::new(),
@@ -458,8 +459,7 @@ impl App {
                     }
                 }
                 Pane::Courses => {
-                    if let Some(p) = self.data.projects.get(self.course_sel) {
-                        let pid = p.id;
+                    if let Some(pid) = self.selected_course() {
                         self.open_course(pid);
                     }
                 }
@@ -499,8 +499,11 @@ impl App {
                     }
                 }
                 Pane::Courses => {
-                    if let Some(p) = self.data.projects.get(self.course_sel) {
-                        let (pid, pre) = (p.id, p.name.clone());
+                    if let Some(pid) = self.selected_course() {
+                        let pre = self
+                            .project(pid)
+                            .map(|p| p.name.clone())
+                            .unwrap_or_default();
                         self.mode = Mode::Insert(InsertTarget::RenameCourse { project: pid }, pre);
                     }
                 }
@@ -545,8 +548,7 @@ impl App {
                             }
                         }
                         Pane::Courses => {
-                            if let Some(p) = self.data.projects.get(self.course_sel) {
-                                let pid = p.id;
+                            if let Some(pid) = self.selected_course() {
                                 self.delete_course(pid);
                             }
                         }

@@ -91,7 +91,7 @@ pub struct App {
     pub view: View,
     pub mode: Mode,
     pub task_sel: usize,   // index into dash_rows()
-    pub course_sel: usize, // index into data.projects
+    pub course_sel: usize, // index into visible_courses(), NOT data.projects
     pub cur_course: Option<u64>,
     pub course_row: usize, // cursor inside the course modal
     pub log_sel: usize,
@@ -379,6 +379,26 @@ impl App {
         rows
     }
 
+    /// The courses the Courses pane shows, in order. `course_sel` indexes
+    /// THIS list, never `data.projects` — archived courses are hidden, so the
+    /// two differ and using the wrong one acts on the wrong course.
+    pub fn visible_courses(&self) -> Vec<&Project> {
+        self.data.projects.iter().filter(|p| !p.archived).collect()
+    }
+
+    /// Id of the course under the Courses-pane cursor.
+    pub fn selected_course(&self) -> Option<u64> {
+        self.visible_courses().get(self.course_sel).map(|p| p.id)
+    }
+
+    /// The archived courses, in order.
+    ///
+    /// Unused until the archive modal lands.
+    #[allow(dead_code)]
+    pub fn archived_courses(&self) -> Vec<&Project> {
+        self.data.projects.iter().filter(|p| p.archived).collect()
+    }
+
     /// The task under the cursor, or `None` when the cursor is on a header.
     pub fn selected_task(&self) -> Option<u64> {
         match self.dash_rows().get(self.task_sel) {
@@ -486,8 +506,9 @@ impl App {
                 .rposition(|r| r.is_selectable())
                 .unwrap_or(0);
         }
-        if self.course_sel >= self.data.projects.len() {
-            self.course_sel = self.data.projects.len().saturating_sub(1);
+        let visible_courses = self.visible_courses().len();
+        if self.course_sel >= visible_courses {
+            self.course_sel = visible_courses.saturating_sub(1);
         }
         if self.log_sel >= self.data.log.len() {
             self.log_sel = self.data.log.len().saturating_sub(1);

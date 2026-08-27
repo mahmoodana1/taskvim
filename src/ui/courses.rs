@@ -35,7 +35,7 @@ pub fn draw_courses(f: &mut Frame, app: &App, area: Rect) {
             Style::default().fg(DIM),
         )));
 
-    if app.data.projects.is_empty() {
+    if app.visible_courses().is_empty() {
         f.render_widget(
             // No leading newline: the panel is sized to its content, so a
             // blank first line would push the message out of view entirely.
@@ -48,8 +48,7 @@ pub fn draw_courses(f: &mut Frame, app: &App, area: Rect) {
     }
 
     let items: Vec<ListItem> = app
-        .data
-        .projects
+        .visible_courses()
         .iter()
         .map(|p| {
             let (done, total) = app.project_stats(p.id);
@@ -99,7 +98,7 @@ pub fn draw_courses(f: &mut Frame, app: &App, area: Rect) {
     if active {
         state.select(Some(
             app.course_sel
-                .min(app.data.projects.len().saturating_sub(1)),
+                .min(app.visible_courses().len().saturating_sub(1)),
         ));
     }
     f.render_stateful_widget(list, area, &mut state);

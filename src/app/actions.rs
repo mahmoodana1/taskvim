@@ -70,7 +70,8 @@ impl App {
             color,
             archived: false,
         });
-        self.course_sel = self.data.projects.len() - 1;
+        // A new course is never archived, so it is last in the visible list.
+        self.course_sel = self.visible_courses().len().saturating_sub(1);
         self.status = String::from("course added — ⏎ opens it");
         self.save_quiet();
     }

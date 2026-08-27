@@ -574,3 +574,55 @@ fn clamp_never_parks_the_cursor_on_chrome() {
     let row = app.dash_rows()[app.task_sel];
     assert!(row.is_selectable(), "clamped onto {:?}", row);
 }
+
+// ------------------------------------------------------------------- courses
+
+fn course(id: u64, name: &str) -> crate::model::Project {
+    crate::model::Project {
+        id,
+        name: name.to_string(),
+        color: 0,
+        archived: false,
+    }
+}
+
+#[test]
+fn visible_courses_excludes_archived_and_keeps_order() {
+    let mut app = test_app(vec![]);
+    app.data.projects = vec![course(1, "Algo"), course(2, "Stats"), course(3, "Calc")];
+    app.data.projects[1].archived = true;
+
+    let names: Vec<&str> = app
+        .visible_courses()
+        .iter()
+        .map(|p| p.name.as_str())
+        .collect();
+    assert_eq!(names, vec!["Algo", "Calc"]);
+}
+
+#[test]
+fn selected_course_resolves_against_the_visible_list() {
+    let mut app = test_app(vec![]);
+    app.data.projects = vec![course(1, "Algo"), course(2, "Stats"), course(3, "Calc")];
+    app.data.projects[1].archived = true;
+
+    // Row 1 on screen is "Calc" — the third project — because Stats is hidden.
+    app.course_sel = 1;
+    assert_eq!(app.selected_course(), Some(3));
+
+    // Past the end resolves to nothing rather than the wrong course.
+    app.course_sel = 9;
+    assert_eq!(app.selected_course(), None);
+}
+
+#[test]
+fn clamp_bounds_course_sel_against_visible_courses() {
+    let mut app = test_app(vec![]);
+    app.data.projects = vec![course(1, "Algo"), course(2, "Stats")];
+    app.data.projects[1].archived = true;
+    app.course_sel = 1; // valid before archiving, out of range after
+
+    app.clamp();
+
+    assert_eq!(app.course_sel, 0);
+}
