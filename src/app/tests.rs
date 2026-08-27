@@ -23,6 +23,7 @@ pub fn task(id: u64, text: &str) -> Task {
         section: None,
         due: None,
         completed: false,
+        dash_section: crate::model::DashSection::General,
     }
 }
 

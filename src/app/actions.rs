@@ -86,7 +86,8 @@ impl App {
             project,
             section,
             due,
-           completed: false,
+            completed: false,
+            dash_section: crate::model::DashSection::default(),
         });
         if pin {
            self.data.dashboard.push(id);

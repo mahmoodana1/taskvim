@@ -20,6 +20,40 @@ pub struct Task {
     pub due: Option<String>, // YYYY-MM-DD
     #[serde(default)]
     pub completed: bool,
+    #[serde(default)]
+    pub dash_section: DashSection,
+}
+
+/// The three fixed dashboard sections. Deliberately an enum and not a
+/// `Section` record: these are fixed, non-renameable, and course-independent,
+/// so an enum cannot dangle, duplicate, or need sanitizing.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum DashSection {
+    Important,
+    #[default]
+    General,
+    Agent,
+}
+
+// `ALL` and `title` have no callers yet — rendering (Task 14) and the row
+// model (Task 13) are what consume them. Remove this once they land.
+#[allow(dead_code)]
+impl DashSection {
+    /// Display order on the dashboard. Fixed.
+    pub const ALL: [DashSection; 3] = [
+        DashSection::Important,
+        DashSection::General,
+        DashSection::Agent,
+    ];
+
+    pub fn title(&self) -> &'static str {
+        match self {
+            DashSection::Important => "Important",
+            DashSection::General => "General",
+            DashSection::Agent => "Agent",
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
@@ -228,5 +262,27 @@ mod tests {
         let back: Data = serde_json::from_str(&s).unwrap();
         assert_eq!(back.log[0].task, Some(1));
         assert_eq!(back.version, 3);
+    }
+
+    #[test]
+    fn dash_section_defaults_to_general_and_roundtrips() {
+        let mut d: Data = serde_json::from_str(v2_json()).unwrap();
+        d.sanitize();
+        assert_eq!(d.tasks[0].dash_section, DashSection::General);
+
+        d.tasks[0].dash_section = DashSection::Important;
+        let s = serde_json::to_string(&d).unwrap();
+        assert!(s.contains("\"important\""), "serializes lowercase: {}", s);
+
+        let back: Data = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.tasks[0].dash_section, DashSection::Important);
+    }
+
+    #[test]
+    fn dash_section_all_is_in_display_order() {
+        assert_eq!(
+            DashSection::ALL,
+            [DashSection::Important, DashSection::General, DashSection::Agent]
+        );
     }
 }
