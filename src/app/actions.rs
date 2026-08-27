@@ -375,9 +375,13 @@ impl App {
             InsertTarget::DashTask => {
                 let p = crate::parse::parse_task_input(&self.data.projects, &buf);
                 let section = p.section.unwrap_or_else(|| self.selected_section());
+                let repeat = p.repeat;
                 if let Some(id) = self.add_task(p.text, p.project, None, p.due, true) {
                     if let Some(t) = self.data.tasks.iter_mut().find(|t| t.id == id) {
                         t.dash_section = section;
+                    }
+                    if let Some(r) = repeat {
+                        self.set_repeat(id, Some(r));
                     }
                     if let Some(pos) = self
                         .dash_rows()
@@ -409,6 +413,16 @@ impl App {
                         String::from("bad date — try 2026-07-10, 7-10, +3, tomorrow, or none")
                 }
             },
+            InsertTarget::Repeat { task } => {
+                let anchor = Local::now().date_naive().format("%Y-%m-%d").to_string();
+                match crate::due::parse_repeat(buf.trim(), &anchor) {
+                    Ok(r) => self.set_repeat(task, r),
+                    Err(_) => {
+                        self.status =
+                            String::from("bad repeat — try 3d, 2w, 1mo, daily, weekly, or none")
+                    }
+                }
+            }
             InsertTarget::RenameTask { task } => {
                 let name = buf.trim();
                 if !name.is_empty() {
@@ -476,7 +490,6 @@ impl App {
     /// Set or clear a task's repeat. Setting one clears the due date — the two
     /// are mutually exclusive — and stamps the current period immediately so
     /// the task doesn't reset on the very next tick.
-    #[allow(dead_code)] // consumed by Task 22 (the `~` repeat menu)
     pub fn set_repeat(&mut self, tid: u64, repeat: Option<Repeat>) {
         let today = Local::now().date_naive();
         let Some(t) = self.data.tasks.iter_mut().find(|t| t.id == tid) else {

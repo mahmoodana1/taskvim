@@ -1,8 +1,8 @@
 //! Add-line parsing: `@course`, `!due` and `#section` suffixes. Pure — no
 //! ratatui, no App — so it can be unit-tested directly.
 
-use crate::due::parse_due;
-use crate::model::{DashSection, Project};
+use crate::due::{parse_due, parse_repeat};
+use crate::model::{DashSection, Project, Repeat};
 
 /// Everything an add-line can specify. Fields left `None` mean "not stated" —
 /// the caller decides the default (e.g. the section under the cursor).
@@ -12,6 +12,7 @@ pub struct ParsedTask {
     pub project: Option<u64>,
     pub due: Option<String>,
     pub section: Option<DashSection>,
+    pub repeat: Option<Repeat>,
 }
 
 fn match_section(name: &str) -> Option<DashSection> {
@@ -46,6 +47,18 @@ fn strip_section(text: &mut String) -> Option<DashSection> {
     Some(s)
 }
 
+/// Try to strip a trailing `~spec` token from `text`. Returns the parsed
+/// repeat if one was found and consumed. `anchor` is today's date, computed
+/// once per `parse_task_input` call rather than re-derived on every attempt.
+fn strip_repeat(text: &mut String, anchor: &str) -> Option<Option<Repeat>> {
+    let tok = text.split_whitespace().last()?;
+    let spec = tok.strip_prefix('~')?;
+    let r = parse_repeat(spec, anchor).ok()?;
+    let cut = text.rfind('~').unwrap();
+    *text = text[..cut].trim().to_string();
+    Some(r)
+}
+
 /// Try to strip a trailing `@course` token from `text`. Returns the matched
 /// project id if one was found and consumed.
 fn strip_project(text: &mut String, projects: &[Project]) -> Option<u64> {
@@ -62,17 +75,22 @@ fn strip_project(text: &mut String, projects: &[Project]) -> Option<u64> {
     Some(id)
 }
 
-/// Strip trailing `!due`, `@course` and `#section` tokens in any order.
-/// A token that doesn't resolve — an unknown course, an unparseable date, a
-/// `#4` that isn't a section — is left in the text as literal content.
+/// Strip trailing `!due`, `@course`, `#section` and `~repeat` tokens in any
+/// order. A token that doesn't resolve — an unknown course, an unparseable
+/// date, a `#4` that isn't a section — is left in the text as literal content.
 pub fn parse_task_input(projects: &[Project], buf: &str) -> ParsedTask {
     let mut text = buf.trim().to_string();
     let mut project = None;
     let mut due = None;
     let mut section = None;
+    let mut repeat = None;
+    // Computed once per call, not per strip attempt: "today" cannot change
+    // mid-parse, so re-deriving it on every loop iteration would just be
+    // repeated formatting work for the same answer.
+    let anchor = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
 
     // Keep stripping trailing tokens as long as some attempt makes progress.
-    // Adding a fourth token type is just another `if` in this block — no
+    // Adding a fifth token type is just another `if` in this block — no
     // iteration bound to keep in sync with the number of token kinds.
     loop {
         let len_before = text.len();
@@ -99,6 +117,13 @@ pub fn parse_task_input(projects: &[Project], buf: &str) -> ParsedTask {
             }
         }
 
+        if repeat.is_none() {
+            if let Some(r) = strip_repeat(&mut text, &anchor) {
+                repeat = r;
+                progressed = true;
+            }
+        }
+
         if !progressed {
             break;
         }
@@ -110,7 +135,7 @@ pub fn parse_task_input(projects: &[Project], buf: &str) -> ParsedTask {
         }
     }
 
-    ParsedTask { text, project, due, section }
+    ParsedTask { text, project, due, section, repeat }
 }
 
 #[cfg(test)]
@@ -191,5 +216,20 @@ mod tests {
         let p = parse_task_input(&projects(), "email bob@example.com");
         assert_eq!(p.text, "email bob@example.com");
         assert_eq!(p.project, None);
+    }
+
+    #[test]
+    fn repeat_suffix_is_parsed_and_stripped() {
+        let p = parse_task_input(&projects(), "water plants ~3d");
+        assert_eq!(p.text, "water plants");
+        assert_eq!(p.repeat.map(|r| r.label()), Some("every 3d".to_string()));
+    }
+
+    #[test]
+    fn repeat_combines_with_section() {
+        let p = parse_task_input(&projects(), "review flashcards ~daily #agent");
+        assert_eq!(p.text, "review flashcards");
+        assert_eq!(p.section, Some(DashSection::Agent));
+        assert!(p.repeat.is_some());
     }
 }

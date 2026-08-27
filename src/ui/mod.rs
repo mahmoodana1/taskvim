@@ -17,7 +17,7 @@ use crate::ui::courses::draw_course_modal;
 use crate::ui::dashboard::draw_dashboard;
 use crate::ui::help::draw_help;
 use crate::ui::log::{draw_daylog, draw_log};
-use crate::ui::popup::{draw_due_menu, draw_input_popup, draw_statusbar};
+use crate::ui::popup::{draw_due_menu, draw_input_popup, draw_repeat_menu, draw_statusbar};
 
 pub fn ui(f: &mut Frame, app: &App) {
     let root = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).split(f.area());
@@ -42,5 +42,8 @@ pub fn ui(f: &mut Frame, app: &App) {
     }
     if let Mode::DueMenu { task } = &app.mode {
         draw_due_menu(f, app, *task);
+    }
+    if let Mode::RepeatMenu { task } = &app.mode {
+        draw_repeat_menu(f, app, *task);
     }
 }

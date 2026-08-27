@@ -51,6 +51,7 @@ pub enum InsertTarget {
     Course,
     Section { project: u64 },
     Due { task: u64 },
+    Repeat { task: u64 },
     RenameTask { task: u64 },
     RenameSection { section: u64 },
     RenameCourse { project: u64 },
@@ -62,6 +63,7 @@ pub enum Mode {
     Insert(InsertTarget, String),
     Command(String),
     DueMenu { task: u64 },
+    RepeatMenu { task: u64 },
 }
 
 pub struct App {

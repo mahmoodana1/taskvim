@@ -30,6 +30,12 @@ pub fn draw_statusbar(f: &mut Frame, app: &App, area: Rect) {
                 .fg(Color::LightGreen)
                 .add_modifier(Modifier::BOLD),
         )),
+        Mode::RepeatMenu { .. } => Line::from(Span::styled(
+            " -- REPEAT PICKER --  (1-5 preset · 0 clear · c custom · Esc cancel)",
+            Style::default()
+                .fg(Color::LightGreen)
+                .add_modifier(Modifier::BOLD),
+        )),
         Mode::Normal => {
             let pend = match app.pending {
                 Some(c) => format!("  [{}‥]", c),
@@ -67,6 +73,7 @@ pub fn draw_input_popup(f: &mut Frame, target: &InsertTarget, buf: &str) {
         InsertTarget::Course => " New course / project ",
         InsertTarget::Section { .. } => " New section (subtitle) ",
         InsertTarget::Due { .. } => " Due date  (YYYY-MM-DD · 7-10 · +3d · +2w · +1mo · today · none) ",
+        InsertTarget::Repeat { .. } => " repeat: 3d · 2w · 1mo · daily · none ",
         InsertTarget::RenameTask { .. } => " Rename task ",
         InsertTarget::RenameSection { .. } => " Rename section ",
         InsertTarget::RenameCourse { .. } => " Rename course ",
@@ -168,6 +175,75 @@ pub fn draw_due_menu(f: &mut Frame, app: &App, task: u64) {
         .padding(Padding::horizontal(1))
         .title(Span::styled(
             " Due date — pick a preset ",
+            Style::default().add_modifier(Modifier::BOLD),
+        ));
+    f.render_widget(Paragraph::new(lines).block(block), popup);
+}
+
+pub fn draw_repeat_menu(f: &mut Frame, app: &App, task: u64) {
+    let current = app
+        .task(task)
+        .and_then(|t| t.repeat.as_ref())
+        .map(|r| r.label())
+        .unwrap_or_else(|| String::from("(not recurring)"));
+
+    let key_style = Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD);
+    let dim = Style::default().fg(DIM);
+    let row = |k: &'static str, label: &'static str| {
+        Line::from(vec![
+            Span::styled(format!("  [{}]  ", k), key_style),
+            Span::raw(label),
+        ])
+    };
+    let rows = [
+        ("1", "daily"),
+        ("2", "every 3 days"),
+        ("3", "weekly"),
+        ("4", "every 2 weeks"),
+        ("5", "monthly"),
+        ("0", "not recurring"),
+        ("c", "custom…"),
+    ];
+    let mut lines = vec![
+        Line::from(Span::styled(
+            format!("  currently: {}", current),
+            Style::default().fg(DIM),
+        )),
+        Line::from(""),
+    ];
+    for (k, label) in rows {
+        lines.push(row(k, label));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::raw("  "),
+        Span::styled(
+            "(custom: 3d · 2w · 1mo · daily · weekly · monthly · none)",
+            dim,
+        ),
+    ]));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  Esc / q  cancel",
+        Style::default().fg(DIM),
+    )));
+
+    let area = f.area();
+    let w = 50u16.min(area.width.saturating_sub(4));
+    let h = (lines.len() as u16 + 2).min(area.height.saturating_sub(4));
+    let popup = Rect {
+        x: area.x + (area.width.saturating_sub(w)) / 2,
+        y: area.y + (area.height.saturating_sub(h)) / 2,
+        width: w,
+        height: h,
+    };
+    f.render_widget(Clear, popup);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::LightGreen))
+        .padding(Padding::horizontal(1))
+        .title(Span::styled(
+            " repeat ",
             Style::default().add_modifier(Modifier::BOLD),
         ));
     f.render_widget(Paragraph::new(lines).block(block), popup);

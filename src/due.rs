@@ -97,6 +97,40 @@ pub fn parse_due(spec: &str) -> Result<Option<String>, ()> {
     }
 }
 
+/// Parse a repeat spec: `3d` · `2w` · `1mo` · `daily` · `weekly` · `monthly`
+/// · `none`/`-`/`""` to clear. `anchor` is today's date in YYYY-MM-DD.
+pub fn parse_repeat(spec: &str, anchor: &str) -> Result<Option<Repeat>, ()> {
+    let s = spec.trim().to_lowercase();
+    if s.is_empty() || s == "none" || s == "clear" || s == "-" {
+        return Ok(None);
+    }
+    let mk = |every: u32, unit: RepeatUnit| {
+        Ok(Some(Repeat { every, unit, anchor: anchor.to_string() }))
+    };
+    match s.as_str() {
+        "daily" | "day" | "d" => return mk(1, RepeatUnit::Day),
+        "weekly" | "week" | "w" => return mk(1, RepeatUnit::Week),
+        "monthly" | "month" | "mo" | "m" => return mk(1, RepeatUnit::Month),
+        _ => {}
+    }
+    let (num, unit) = if let Some(rest) = s.strip_suffix("mo") {
+        (rest, RepeatUnit::Month)
+    } else if let Some(rest) = s.strip_suffix('m') {
+        (rest, RepeatUnit::Month)
+    } else if let Some(rest) = s.strip_suffix('w') {
+        (rest, RepeatUnit::Week)
+    } else if let Some(rest) = s.strip_suffix('d') {
+        (rest, RepeatUnit::Day)
+    } else {
+        (s.as_str(), RepeatUnit::Day)
+    };
+    let n: u32 = num.trim().parse().map_err(|_| ())?;
+    if n == 0 {
+        return Err(());
+    }
+    mk(n, unit)
+}
+
 /// Snap a date back to the start of its grid cell: the day itself, its Monday,
 /// or the 1st of its month.
 pub fn align(date: NaiveDate, unit: RepeatUnit) -> NaiveDate {
@@ -336,5 +370,19 @@ mod tests {
     fn every_zero_is_treated_as_every_one() {
         let r = rep(0, RepeatUnit::Day, "2026-08-20");
         assert_eq!(period_start(d("2026-08-26"), &r), d("2026-08-26"));
+    }
+
+    #[test]
+    fn parse_repeat_understands_the_shorthand() {
+        let anchor = "2026-08-26";
+        assert_eq!(parse_repeat("3d", anchor), Ok(Some(rep(3, RepeatUnit::Day, anchor))));
+        assert_eq!(parse_repeat("2w", anchor), Ok(Some(rep(2, RepeatUnit::Week, anchor))));
+        assert_eq!(parse_repeat("1mo", anchor), Ok(Some(rep(1, RepeatUnit::Month, anchor))));
+        assert_eq!(parse_repeat("daily", anchor), Ok(Some(rep(1, RepeatUnit::Day, anchor))));
+        assert_eq!(parse_repeat("weekly", anchor), Ok(Some(rep(1, RepeatUnit::Week, anchor))));
+        assert_eq!(parse_repeat("monthly", anchor), Ok(Some(rep(1, RepeatUnit::Month, anchor))));
+        assert_eq!(parse_repeat("none", anchor), Ok(None));
+        assert_eq!(parse_repeat("banana", anchor), Err(()));
+        assert_eq!(parse_repeat("0d", anchor), Err(()));
     }
 }
