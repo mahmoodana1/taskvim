@@ -1,6 +1,6 @@
 //! The completed-history log view and the per-day completion detail view.
 
-use chrono::Local;
+use chrono::{Local, NaiveDate};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -16,10 +16,19 @@ pub fn draw_log(f: &mut Frame, app: &App, area: Rect) {
     let goal = app.data.daily_goal.max(1);
     let streak = app.streak();
 
+    fn plural<'a>(n: usize, one: &'a str, many: &'a str) -> &'a str {
+        if n == 1 {
+            one
+        } else {
+            many
+        }
+    }
     let title = format!(
-        " COMPLETED HISTORY — {} commits · {} active days · {}-day streak ",
+        " HISTORY — {} {} · {} active {} · {}-day streak ",
         total_commits,
+        plural(total_commits, "commit", "commits"),
         days.len(),
+        plural(days.len(), "day", "days"),
         streak,
     );
 
@@ -135,7 +144,14 @@ pub fn draw_daylog(f: &mut Frame, app: &App, area: Rect) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(ACCENT))
         .title(Span::styled(
-            format!(" CONTRIBUTIONS — {} — {} tasks ", date, logs.len()),
+            format!(
+                " DAY — {} · {} {} ",
+                NaiveDate::parse_from_str(date, "%Y-%m-%d")
+                    .map(|d| d.format("%a %b %d").to_string())
+                    .unwrap_or_else(|_| date.clone()),
+                logs.len(),
+                if logs.len() == 1 { "task" } else { "tasks" }
+            ),
             Style::default().add_modifier(Modifier::BOLD),
         ))
         .title_bottom(Line::from(Span::styled(

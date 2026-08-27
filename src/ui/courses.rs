@@ -7,7 +7,7 @@ use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragra
 use ratatui::Frame;
 
 use crate::app::{App, Pane, Row, View};
-use crate::ui::theme::{due_span, palette, repeat_span, ACCENT, DIM, SEL_BG};
+use crate::ui::theme::{due_span, fit_span, palette, repeat_span, ACCENT, DIM, SEL_BG};
 
 pub fn draw_courses(f: &mut Frame, app: &App, area: Rect) {
     let active = app.pane == Pane::Courses && app.view == View::Dashboard;
@@ -103,14 +103,62 @@ pub fn draw_courses(f: &mut Frame, app: &App, area: Rect) {
     f.render_stateful_widget(list, area, &mut state);
 }
 
+/// `── LECTURES ──────────────────────── 2`
+///
+/// The modal already has a border, so its sections use a rule rather than a
+/// second box — nesting borders is what the dashboard deliberately avoids.
+/// Same vocabulary though: uppercase title, rule, trailing count.
+fn section_rule(name: &str, count: usize, width: usize, color: Color) -> ListItem<'static> {
+    let title = format!(" {} ", name.to_uppercase());
+    let tail = format!(" {} ", count);
+    let lead = 2usize; // the "──" that opens the rule
+    let rule = width.saturating_sub(lead + title.chars().count() + tail.chars().count());
+    ListItem::new(Line::from(vec![
+        Span::styled("──", Style::default().fg(color)),
+        Span::styled(
+            title,
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("─".repeat(rule), Style::default().fg(color)),
+        Span::styled(tail, Style::default().fg(DIM)),
+    ]))
+}
+
+/// `  ↗ Lecture 8                ⚠ was due Aug 20` — badge flush right, title
+/// truncated to fit. Mirrors the dashboard's task rows without the side bars.
+fn task_row(
+    marker: Span<'static>,
+    title: Span<'static>,
+    badge: Option<Span<'static>>,
+    width: usize,
+) -> ListItem<'static> {
+    let indent = 2usize;
+    let badge_w = badge.as_ref().map(|b| b.width()).unwrap_or(0);
+    let avail = width.saturating_sub(indent + marker.width() + badge_w);
+    let title = fit_span(title, avail);
+    let pad = width.saturating_sub(indent + marker.width() + title.width() + badge_w);
+
+    let mut spans = vec![Span::raw(" ".repeat(indent)), marker, title];
+    spans.push(Span::raw(" ".repeat(pad)));
+    if let Some(b) = badge {
+        spans.push(b);
+    }
+    ListItem::new(Line::from(spans))
+}
+
 pub fn draw_course_modal(f: &mut Frame, app: &App, area: Rect) {
     let Some(pid) = app.cur_course else { return };
     let Some(p) = app.project(pid) else { return };
     let color = palette(p.color);
     let (done, total) = app.project_stats(pid);
 
+    let rows = app.course_rows(pid);
+
     let w = area.width.saturating_sub(8).min(90).max(40);
-    let h = area.height.saturating_sub(4).min(32).max(12);
+    // Size to content rather than always filling the screen: 2 border rows plus
+    // one per row, capped by the space available.
+    let content_h = rows.len() as u16 + 2;
+    let h = content_h.clamp(6, area.height.saturating_sub(4).min(32).max(6));
     let popup = Rect {
         x: area.x + (area.width.saturating_sub(w)) / 2,
         y: area.y + (area.height.saturating_sub(h)) / 2,
@@ -131,7 +179,10 @@ pub fn draw_course_modal(f: &mut Frame, app: &App, area: Rect) {
             Style::default().fg(DIM),
         )));
 
-    let rows = app.course_rows(pid);
+    // 2 borders + a 1-column right margin so badges and counts do not butt
+    // against the frame.
+    let inner_w = popup.width.saturating_sub(3) as usize;
+
     if rows.is_empty() {
         f.render_widget(
             Paragraph::new(
@@ -156,49 +207,43 @@ pub fn draw_course_modal(f: &mut Frame, app: &App, area: Rect) {
                     .iter()
                     .filter(|t| t.section == Some(*sid))
                     .count();
-                ListItem::new(Line::from(vec![
-                    Span::styled(
-                        format!("▸ {}", name),
-                        Style::default().fg(color).add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(format!("  ({})", n), Style::default().fg(DIM)),
-                ]))
+                section_rule(&name, n, inner_w, color)
             }
-            Row::NoSection => ListItem::new(Line::from(Span::styled(
-                "▸ (no section)",
-                Style::default().fg(DIM).add_modifier(Modifier::BOLD),
-            ))),
+            Row::NoSection => {
+                let n = app
+                    .data
+                    .tasks
+                    .iter()
+                    .filter(|t| t.project == Some(pid) && t.section.is_none())
+                    .count();
+                section_rule("unsectioned", n, inner_w, DIM)
+            }
             Row::Task(tid) => {
                 let Some(t) = app.task(*tid) else {
                     return ListItem::new(Line::from(""));
                 };
-                let mut spans = vec![Span::raw("   ")];
                 let style = if t.completed {
                     Style::default().fg(DIM).add_modifier(Modifier::DIM)
                 } else {
                     Style::default()
                 };
-                if app.is_pinned(*tid) {
-                    spans.push(Span::styled("↗ ", Style::default().fg(Color::LightCyan)));
+                let marker = if app.is_pinned(*tid) {
+                    Span::styled("↗ ", Style::default().fg(Color::LightCyan))
                 } else {
-                    spans.push(Span::styled("○ ", style));
-                }
+                    Span::styled("○ ", style)
+                };
                 let text = if t.completed {
                     format!("✓ {}", t.text)
                 } else {
                     t.text.clone()
                 };
-                spans.push(Span::styled(text, style));
-                let mut lines = vec![Line::from(spans)];
-                if !t.completed {
-                    // A task has a repeat or a due date, never both.
-                    let badge = repeat_span(&t.repeat).or_else(|| due_span(&t.due));
-                    if let Some(s) = badge {
-                        // Indent to line up under the task text, past the bullet marker.
-                        lines.push(Line::from(vec![Span::raw("     "), s]));
-                    }
-                }
-                ListItem::new(lines)
+                // A task has a repeat or a due date, never both.
+                let badge = if t.completed {
+                    None
+                } else {
+                    repeat_span(&t.repeat).or_else(|| due_span(&t.due))
+                };
+                task_row(marker, Span::styled(text, style), badge, inner_w)
             }
         })
         .collect();

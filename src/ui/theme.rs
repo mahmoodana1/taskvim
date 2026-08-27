@@ -86,3 +86,29 @@ pub fn ellipsize(s: &str, max: usize) -> String {
     out.push('…');
     out
 }
+
+/// Truncate a span to at most `max` display columns, appending `…` if cut.
+/// Measures width per character while building, so a wide glyph can never push
+/// the result past `max` — truncating by char count and measuring afterwards
+/// silently overshoots and misaligns the box.
+pub fn fit_span(s: Span<'static>, max: usize) -> Span<'static> {
+    if s.width() <= max {
+        return s;
+    }
+    if max == 0 {
+        return Span::styled(String::new(), s.style);
+    }
+    let budget = max - 1; // `…` is one column wide
+    let mut out = String::new();
+    let mut w = 0usize;
+    for ch in s.content.chars() {
+        let cw = Span::raw(ch.to_string()).width();
+        if w + cw > budget {
+            break;
+        }
+        w += cw;
+        out.push(ch);
+    }
+    out.push('…');
+    Span::styled(out, s.style)
+}

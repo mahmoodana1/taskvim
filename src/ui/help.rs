@@ -18,11 +18,18 @@ pub fn draw_help(f: &mut Frame, area: Rect) {
             Span::raw(d),
         ])
     };
+    // Same vocabulary as the dashboard's section boxes and the course modal's
+    // section rules: an uppercase title opening a rule.
+    let full = area.width.saturating_sub(2) as usize;
     let hdr = |t: &'static str| {
-        Line::from(Span::styled(
-            format!(" {}", t),
-            Style::default().add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
-        ))
+        let rule = full.saturating_sub(t.chars().count() + 6);
+        Line::from(vec![
+            Span::styled(
+                format!(" ── {} ", t),
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("─".repeat(rule), Style::default().fg(DIM)),
+        ])
     };
     let lines = vec![
         hdr("MOTIONS (everywhere)"),

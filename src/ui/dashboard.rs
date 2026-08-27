@@ -13,7 +13,7 @@ use crate::model::{DashSection, Task};
 use crate::ui::courses::draw_courses;
 use crate::ui::heatmap::{draw_daily_goal, draw_heatmap, draw_priority};
 use crate::ui::theme::{
-    due_span, ellipsize, palette, repeat_span, section_color, ACCENT, DIM, SEL_BG,
+    due_span, ellipsize, fit_span, palette, repeat_span, section_color, ACCENT, DIM, SEL_BG,
 };
 
 pub fn draw_dashboard(f: &mut Frame, app: &App, area: Rect) {
@@ -110,32 +110,6 @@ pub fn task_spans(app: &App, t: &Task) -> (Vec<Span<'static>>, Option<Span<'stat
         repeat_span(&t.repeat).or_else(|| due_span(&t.due))
     };
     (spans, badge)
-}
-
-/// Truncate a span to at most `max` display columns, appending `…` if cut.
-/// Measures width per character while building, so a wide glyph can never push
-/// the result past `max` — truncating by char count and measuring afterwards
-/// silently overshoots and misaligns the box.
-fn fit_span(s: Span<'static>, max: usize) -> Span<'static> {
-    if s.width() <= max {
-        return s;
-    }
-    if max == 0 {
-        return Span::styled(String::new(), s.style);
-    }
-    let budget = max - 1; // `…` is one column wide
-    let mut out = String::new();
-    let mut w = 0usize;
-    for ch in s.content.chars() {
-        let cw = Span::raw(ch.to_string()).width();
-        if w + cw > budget {
-            break;
-        }
-        w += cw;
-        out.push(ch);
-    }
-    out.push('…');
-    Span::styled(out, s.style)
 }
 
 /// `┌ IMPORTANT ─────────── 2 ┐`
