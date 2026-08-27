@@ -8,7 +8,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Padding, Paragraph};
 use ratatui::Frame;
 
-use crate::app::{App, Pane, View};
+use crate::app::{App, DashRow, Pane, View};
 use crate::model::Task;
 use crate::ui::courses::draw_courses;
 use crate::ui::heatmap::{draw_daily_goal, draw_heatmap, draw_priority};
@@ -58,8 +58,12 @@ pub fn draw_greeting(f: &mut Frame, area: Rect) {
     );
 }
 
-pub fn task_line(app: &App, t: &Task, show_pin: bool) -> ListItem<'static> {
+pub fn task_line(app: &App, t: &Task, show_pin: bool, indent: bool) -> ListItem<'static> {
     let mut spans = vec![];
+    if indent {
+        // Two columns, so the task reads as belonging to the header above it.
+        spans.push(Span::raw("  "));
+    }
     let style = if t.completed {
         Style::default().fg(DIM).add_modifier(Modifier::DIM)
     } else {
@@ -98,7 +102,8 @@ pub fn task_line(app: &App, t: &Task, show_pin: bool) -> ListItem<'static> {
     if !t.completed {
         if let Some(s) = due_span(&t.due) {
             // Second line so long titles never collide with the due badge.
-            lines.push(Line::from(vec![Span::raw(" "), s]));
+            let lead = if indent { "   " } else { " " };
+            lines.push(Line::from(vec![Span::raw(lead), s]));
         }
     }
     ListItem::new(lines)
@@ -107,32 +112,56 @@ pub fn task_line(app: &App, t: &Task, show_pin: bool) -> ListItem<'static> {
 pub fn draw_task_sidebar(f: &mut Frame, app: &App, area: Rect) {
     let active = app.pane == Pane::Tasks && app.view == View::Dashboard;
     let border = if active { ACCENT } else { DIM };
-    let visible = app.dash_ids();
     let done_today = app.dash_completed_today();
-    let footer = if done_today > 0 {
-        format!(
-            " a:add ⏎:done t:due dd:unlink r:random · {} done today (:log) ",
+    // 1/2/3, t and dd all act on the task under the cursor — hide them when
+    // the cursor is sitting on a section header instead.
+    let on_task = !active || app.selected_task().is_some();
+    let footer = match (on_task, done_today > 0) {
+        (true, true) => format!(
+            " a:add ⏎:done 1/2/3:section t:due dd:unlink · {} done today (:log) ",
             done_today
-        )
-    } else {
-        " a:add ⏎:done t:due dd:unlink r:random ".to_string()
+        ),
+        (true, false) => " a:add ⏎:done 1/2/3:section t:due dd:unlink r:random ".to_string(),
+        (false, true) => format!(" a:add · {} done today (:log) ", done_today),
+        (false, false) => " a:add r:random ".to_string(),
     };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border))
         .title(Span::styled(
-            format!(" Tasks — dashboard ({}) ", visible.len()),
+            format!(" Tasks — dashboard ({}) ", app.dash_ids().len()),
             Style::default().add_modifier(Modifier::BOLD),
         ))
         .title_bottom(Line::from(Span::styled(footer, Style::default().fg(DIM))));
 
-    let items: Vec<ListItem> = visible
+    let rows = app.dash_rows();
+    let items: Vec<ListItem> = rows
         .iter()
-        .filter_map(|id| app.task(*id))
-        .map(|t| task_line(app, t, false))
+        .map(|row| match row {
+            DashRow::Section(sec) => {
+                let count = app
+                    .dash_ids()
+                    .iter()
+                    .filter(|id| {
+                        app.task(**id).map(|t| t.dash_section == *sec).unwrap_or(false)
+                    })
+                    .count();
+                ListItem::new(Line::from(vec![
+                    Span::styled(
+                        format!("▸ {}", sec.title()),
+                        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(format!("  {}", count), Style::default().fg(DIM)),
+                ]))
+            }
+            DashRow::Task(id) => match app.task(*id) {
+                Some(t) => task_line(app, t, false, true),
+                None => ListItem::new(Line::from("")),
+            },
+        })
         .collect();
 
-    if items.is_empty() {
+    if app.dash_ids().is_empty() {
         let msg = if done_today > 0 {
             format!(
                 "\n  all clear ✓\n\n  {} completed today.\n  :log for history\n\n  a to add a task\n  r for a random one",
@@ -151,7 +180,7 @@ pub fn draw_task_sidebar(f: &mut Frame, app: &App, area: Rect) {
         .highlight_style(Style::default().bg(SEL_BG).add_modifier(Modifier::BOLD));
     let mut state = ListState::default();
     if active {
-        state.select(Some(app.task_sel.min(visible.len().saturating_sub(1))));
+        state.select(Some(app.task_sel.min(rows.len().saturating_sub(1))));
     }
     f.render_stateful_widget(list, area, &mut state);
 }

@@ -333,10 +333,6 @@ impl App {
     }
 
     /// The task under the cursor, or `None` when the cursor is on a header.
-    // Only exercised by tests so far — rendering (Task 14) and the key
-    // handlers (Task 15) are what consume this in the app. Remove this
-    // allow once they land.
-    #[allow(dead_code)]
     pub fn selected_task(&self) -> Option<u64> {
         match self.dash_rows().get(self.task_sel) {
             Some(DashRow::Task(id)) => Some(*id),

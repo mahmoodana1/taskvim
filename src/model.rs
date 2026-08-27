@@ -44,9 +44,6 @@ impl DashSection {
         DashSection::Agent,
     ];
 
-    // No callers yet — rendering (Task 14) is what consumes this. Remove
-    // this allow once it lands.
-    #[allow(dead_code)]
     pub fn title(&self) -> &'static str {
         match self {
             DashSection::Important => "Important",
