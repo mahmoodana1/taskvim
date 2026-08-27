@@ -311,3 +311,17 @@ fn a_missed_period_leaves_no_trace() {
     assert_eq!(app.data.log.len(), 0, "no backlog, no phantom commits");
     assert_eq!(app.data.tasks[0].due, None, "habits never gain a due date");
 }
+
+#[test]
+fn adding_a_task_with_only_tokens_reports_an_error() {
+    let mut app = test_app(vec![]);
+
+    app.confirm_insert(crate::app::InsertTarget::DashTask, "#i".to_string());
+
+    assert!(app.data.tasks.is_empty(), "nothing was created");
+    assert!(
+        app.status.to_lowercase().contains("name") || app.status.to_lowercase().contains("empty"),
+        "user gets told why nothing happened, got: {:?}",
+        app.status
+    );
+}

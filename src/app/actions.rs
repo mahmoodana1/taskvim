@@ -387,6 +387,9 @@ impl App {
                         self.task_sel = pos;
                     }
                     self.save_quiet();
+                } else {
+                    self.status =
+                        String::from("give the task a name — @course, !due and #section are suffixes");
                 }
             }
             InsertTarget::CourseTask { project, section } => {
