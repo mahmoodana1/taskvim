@@ -4,10 +4,10 @@
 use std::collections::HashSet;
 
 use chrono::{Datelike, Duration as CDuration, Local, NaiveDate};
-use ratatui::layout::{Alignment, Constraint, Layout, Margin, Rect};
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Gauge, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Gauge, Padding, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::app::App;
@@ -18,9 +18,14 @@ pub fn draw_priority(f: &mut Frame, app: &App, area: Rect) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(ACCENT))
         .title(Span::styled(
-            " CURRENT PRIORITY ",
+            " NOW ",
             Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-        ));
+        ))
+        .title_bottom(Line::from(Span::styled(
+            " c: complete ",
+            Style::default().fg(DIM),
+        )))
+        .padding(Padding::horizontal(1));
 
     let first = app.dash_ids().first().and_then(|id| app.task(*id));
     let lines = match first {
@@ -39,38 +44,19 @@ pub fn draw_priority(f: &mut Frame, app: &App, area: Rect) {
             if let Some(s) = due_span(&t.due) {
                 title_spans.push(s);
             }
-            vec![
-                Line::from(""),
-                Line::from(title_spans).alignment(Alignment::Center),
-                Line::from(Span::styled(
-                    "Stay strictly on this task until completion.",
-                    Style::default().fg(DIM),
-                ))
-                .alignment(Alignment::Center),
-                Line::from(""),
-                Line::from(Span::styled(
-                    "[ c  Complete Task ]",
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(ACCENT)
-                        .add_modifier(Modifier::BOLD),
-                ))
-                .alignment(Alignment::Center),
-            ]
+            // Left-aligned and unpadded: the task name is the content, not a
+            // motivational poster.
+            vec![Line::from(title_spans)]
         }
-        None => vec![
-            Line::from(""),
-            Line::from(Span::styled(
-                "Dashboard clear ✓",
-                Style::default().add_modifier(Modifier::BOLD),
-            ))
-            .alignment(Alignment::Center),
-            Line::from(Span::styled(
-                "open a course (⏎) and press p to link a task here",
+        // One line, so the panel is the same height whether or not there is a
+        // task in it and the rail below never shifts.
+        None => vec![Line::from(vec![
+            Span::styled("all clear ✓", Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "   ⏎ a course, then p to link one here",
                 Style::default().fg(DIM),
-            ))
-            .alignment(Alignment::Center),
-        ],
+            ),
+        ])],
     };
 
     f.render_widget(
@@ -84,13 +70,14 @@ pub fn draw_daily_goal(f: &mut Frame, app: &App, area: Rect) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(DIM))
         .title(Span::styled(
-            " DAILY GOAL ",
+            " GOAL ",
             Style::default().add_modifier(Modifier::BOLD),
         ))
         .title_bottom(Line::from(Span::styled(
             " +/- adjust ",
             Style::default().fg(DIM),
-        )));
+        )))
+        .padding(Padding::horizontal(1));
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -99,17 +86,14 @@ pub fn draw_daily_goal(f: &mut Frame, app: &App, area: Rect) {
     let ratio = (done as f64 / goal as f64).min(1.0);
     let streak = app.streak();
 
+    // Two rows: the numbers, then the gauge. The streak rides on the numbers
+    // row rather than claiming one of its own.
     let rows = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Min(0),
     ])
-    .split(inner.inner(Margin {
-        horizontal: 1,
-        vertical: 1,
-    }));
+    .split(inner);
 
     let pct = Line::from(vec![
         Span::styled(
@@ -120,11 +104,7 @@ pub fn draw_daily_goal(f: &mut Frame, app: &App, area: Rect) {
         Span::raw("   "),
         Span::styled(
             format!("🔥 {} day streak", streak),
-            Style::default().fg(if streak > 0 {
-                Color::LightYellow
-            } else {
-                DIM
-            }),
+            Style::default().fg(if streak > 0 { Color::LightYellow } else { DIM }),
         ),
     ]);
     f.render_widget(Paragraph::new(pct), rows[0]);
@@ -139,25 +119,6 @@ pub fn draw_daily_goal(f: &mut Frame, app: &App, area: Rect) {
         )
         .label("");
     f.render_widget(gauge, rows[1]);
-
-    let msg = if done == 0 {
-        "Let's get started."
-    } else if done < goal {
-        "You're on your way!"
-    } else {
-        "Goal complete — keep the streak alive ✦"
-    };
-    f.render_widget(
-        Paragraph::new(Span::styled(
-            format!("Goal: {} tasks/day", goal),
-            Style::default().fg(DIM),
-        )),
-        rows[2],
-    );
-    f.render_widget(
-        Paragraph::new(Span::styled(msg, Style::default().fg(DIM))),
-        rows[3],
-    );
 }
 
 fn heat_cell(count: u32, is_today: bool, month: u32, is_month_start: bool) -> Span<'static> {
@@ -219,9 +180,8 @@ pub fn draw_heatmap(f: &mut Frame, app: &App, area: Rect) {
     }
 
     // Effective column position of week `w` in the rendered grid (accounts for dividers).
-    let col_of_week = |w: usize| -> usize {
-        w + month_start_weeks.iter().filter(|mw| **mw <= w).count()
-    };
+    let col_of_week =
+        |w: usize| -> usize { w + month_start_weeks.iter().filter(|mw| **mw <= w).count() };
 
     let mut month_row = vec![Span::raw("     ")];
     let mut cursor = 0usize;
@@ -289,7 +249,7 @@ pub fn draw_heatmap(f: &mut Frame, app: &App, area: Rect) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(DIM))
         .title(Span::styled(
-            format!(" CONTRIBUTION TRACKER — {} ", year),
+            format!(" ACTIVITY — {} ", year),
             Style::default().add_modifier(Modifier::BOLD),
         ))
         .title_bottom(Line::from(Span::styled(

@@ -318,7 +318,11 @@ mod tests {
     fn dash_section_all_is_in_display_order() {
         assert_eq!(
             DashSection::ALL,
-            [DashSection::Important, DashSection::General, DashSection::Agent]
+            [
+                DashSection::Important,
+                DashSection::General,
+                DashSection::Agent
+            ]
         );
     }
 }

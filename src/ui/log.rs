@@ -54,7 +54,9 @@ pub fn draw_log(f: &mut Frame, app: &App, area: Rect) {
         .map(|(date, count)| {
             let met = *count >= goal;
             let bullet_style = if met {
-                Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::LightGreen)
+                    .add_modifier(Modifier::BOLD)
             } else if *count > 0 {
                 Style::default().fg(Color::Yellow)
             } else {
@@ -69,14 +71,15 @@ pub fn draw_log(f: &mut Frame, app: &App, area: Rect) {
                 Style::default().add_modifier(Modifier::BOLD),
             );
 
-            let count_span = Span::styled(
-                format!("  {:>3} done", count),
-                Style::default().fg(DIM),
-            );
+            let count_span = Span::styled(format!("  {:>3} done", count), Style::default().fg(DIM));
 
             let filled = ((*count as f64 / max_daily as f64) * bar_w as f64).round() as usize;
             let filled = filled.min(bar_w);
-            let bar_color = if met { Color::LightGreen } else { Color::Yellow };
+            let bar_color = if met {
+                Color::LightGreen
+            } else {
+                Color::Yellow
+            };
             let bar_span = Span::styled(
                 format!("  {}{}", "▓".repeat(filled), "░".repeat(bar_w - filled)),
                 Style::default().fg(bar_color),
@@ -123,9 +126,11 @@ pub fn draw_log(f: &mut Frame, app: &App, area: Rect) {
 }
 
 pub fn draw_daylog(f: &mut Frame, app: &App, area: Rect) {
-    let Some(date) = &app.selected_date else { return };
+    let Some(date) = &app.selected_date else {
+        return;
+    };
     let logs = app.logs_for_date(date);
-    
+
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(ACCENT))
@@ -162,10 +167,7 @@ pub fn draw_daylog(f: &mut Frame, app: &App, area: Rect) {
                 } else {
                     format!("[{}] ", e.project_name)
                 };
-                spans.push(Span::styled(
-                    label,
-                    Style::default().fg(palette(e.color)),
-                ));
+                spans.push(Span::styled(label, Style::default().fg(palette(e.color))));
             }
             spans.push(Span::raw(e.text.clone()));
             ListItem::new(Line::from(spans))

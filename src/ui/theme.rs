@@ -43,7 +43,9 @@ pub fn due_span(due: &Option<String>) -> Option<Span<'static>> {
     let (txt, style) = if d < today {
         (
             format!("  ⚠ was due {}", d.format("%b %d")),
-            Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::LightRed)
+                .add_modifier(Modifier::BOLD),
         )
     } else if d == today {
         (

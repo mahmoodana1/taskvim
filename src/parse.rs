@@ -87,7 +87,10 @@ pub fn parse_task_input(projects: &[Project], buf: &str) -> ParsedTask {
     // Computed once per call, not per strip attempt: "today" cannot change
     // mid-parse, so re-deriving it on every loop iteration would just be
     // repeated formatting work for the same answer.
-    let anchor = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
+    let anchor = chrono::Local::now()
+        .date_naive()
+        .format("%Y-%m-%d")
+        .to_string();
 
     // Keep stripping trailing tokens as long as some attempt makes progress.
     // Adding a fifth token type is just another `if` in this block — no
@@ -135,7 +138,13 @@ pub fn parse_task_input(projects: &[Project], buf: &str) -> ParsedTask {
         }
     }
 
-    ParsedTask { text, project, due, section, repeat }
+    ParsedTask {
+        text,
+        project,
+        due,
+        section,
+        repeat,
+    }
 }
 
 #[cfg(test)]
@@ -145,8 +154,16 @@ mod tests {
 
     fn projects() -> Vec<Project> {
         vec![
-            Project { id: 7, name: "Algorithms 2".into(), color: 0 },
-            Project { id: 8, name: "Statistics".into(), color: 1 },
+            Project {
+                id: 7,
+                name: "Algorithms 2".into(),
+                color: 0,
+            },
+            Project {
+                id: 8,
+                name: "Statistics".into(),
+                color: 1,
+            },
         ]
     }
 
@@ -173,7 +190,10 @@ mod tests {
             parse_task_input(&projects(), "buy milk #a").section,
             Some(DashSection::Agent)
         );
-        assert_eq!(parse_task_input(&projects(), "buy milk #i").text, "buy milk");
+        assert_eq!(
+            parse_task_input(&projects(), "buy milk #i").text,
+            "buy milk"
+        );
     }
 
     #[test]

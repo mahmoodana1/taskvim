@@ -18,9 +18,9 @@ pub fn draw_courses(f: &mut Frame, app: &App, area: Rect) {
     let hidden = n_projects.saturating_sub(max_visible);
 
     let title = if hidden > 0 {
-        format!(" Courses & Projects  (+{} hidden) ", hidden)
+        format!(" COURSES  (+{} hidden) ", hidden)
     } else {
-        String::from(" Courses & Projects ")
+        String::from(" COURSES ")
     };
 
     let block = Block::default()
@@ -73,10 +73,7 @@ pub fn draw_courses(f: &mut Frame, app: &App, area: Rect) {
 
             let mut stats_spans = vec![
                 Span::styled("      ", Style::default()),
-                Span::styled(
-                    format!("{}/{}", done, total),
-                    Style::default().fg(DIM),
-                ),
+                Span::styled(format!("{}/{}", done, total), Style::default().fg(DIM)),
                 Span::styled("  ", Style::default()),
                 Span::styled(bar, Style::default().fg(color)),
             ];
@@ -98,7 +95,10 @@ pub fn draw_courses(f: &mut Frame, app: &App, area: Rect) {
 
     let mut state = ListState::default();
     if active {
-        state.select(Some(app.course_sel.min(app.data.projects.len().saturating_sub(1))));
+        state.select(Some(
+            app.course_sel
+                .min(app.data.projects.len().saturating_sub(1)),
+        ));
     }
     f.render_stateful_widget(list, area, &mut state);
 }

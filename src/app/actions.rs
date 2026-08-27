@@ -49,7 +49,7 @@ impl App {
             period: None,
         });
         if pin {
-           self.data.dashboard.push(id);
+            self.data.dashboard.push(id);
         }
         self.status = String::from("task added");
         self.save_quiet();
@@ -93,7 +93,7 @@ impl App {
         let project = t.project;
         let section = t.section;
         let was_completed = t.completed;
-        
+
         let (pname, color) = match self.project_of(project) {
             Some(p) => (p.name.clone(), p.color),
             None => (String::new(), 0),
@@ -348,8 +348,7 @@ impl App {
             return;
         }
         let pos = options.iter().position(|o| *o == cur).unwrap_or(0) as i32;
-        let next =
-            ((pos + delta).rem_euclid(options.len() as i32)) as usize;
+        let next = ((pos + delta).rem_euclid(options.len() as i32)) as usize;
         let new = options[next];
         if let Some(t) = self.data.tasks.iter_mut().find(|t| t.id == tid) {
             t.section = new;
@@ -392,8 +391,9 @@ impl App {
                     }
                     self.save_quiet();
                 } else {
-                    self.status =
-                        String::from("give the task a name — @course, !due and #section are suffixes");
+                    self.status = String::from(
+                        "give the task a name — @course, !due and #section are suffixes",
+                    );
                 }
             }
             InsertTarget::CourseTask { project, section } => {
@@ -403,9 +403,7 @@ impl App {
                 }
             }
             InsertTarget::Course => self.add_course(buf.trim().to_string()),
-            InsertTarget::Section { project } => {
-                self.add_section(project, buf.trim().to_string())
-            }
+            InsertTarget::Section { project } => self.add_section(project, buf.trim().to_string()),
             InsertTarget::Due { task } => match parse_due(buf.trim()) {
                 Ok(due) => self.apply_due(task, due),
                 Err(_) => {
@@ -550,7 +548,9 @@ impl App {
         let mut changed = false;
         for t in self.data.tasks.iter_mut() {
             let Some(r) = t.repeat.as_ref() else { continue };
-            let start = crate::due::period_start(today, r).format("%Y-%m-%d").to_string();
+            let start = crate::due::period_start(today, r)
+                .format("%Y-%m-%d")
+                .to_string();
             if t.period.as_deref() != Some(start.as_str()) {
                 t.period = Some(start);
                 t.completed = false;

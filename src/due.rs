@@ -16,7 +16,9 @@ pub fn parse_due(spec: &str) -> Result<Option<String>, ()> {
         return Ok(Some(today.format("%Y-%m-%d").to_string()));
     }
     if s == "tomorrow" || s == "tmr" {
-        return Ok(Some((today + CDuration::days(1)).format("%Y-%m-%d").to_string()));
+        return Ok(Some(
+            (today + CDuration::days(1)).format("%Y-%m-%d").to_string(),
+        ));
     }
     // Bare unit shortcuts: "w" = +1 week, "mo" = +1 month, "d" = +1 day, "y" = +1 year.
     let bare = match s.as_str() {
@@ -105,7 +107,11 @@ pub fn parse_repeat(spec: &str, anchor: &str) -> Result<Option<Repeat>, ()> {
         return Ok(None);
     }
     let mk = |every: u32, unit: RepeatUnit| {
-        Ok(Some(Repeat { every, unit, anchor: anchor.to_string() }))
+        Ok(Some(Repeat {
+            every,
+            unit,
+            anchor: anchor.to_string(),
+        }))
     };
     match s.as_str() {
         "daily" | "day" | "d" => return mk(1, RepeatUnit::Day),
@@ -136,12 +142,8 @@ pub fn parse_repeat(spec: &str, anchor: &str) -> Result<Option<Repeat>, ()> {
 pub fn align(date: NaiveDate, unit: RepeatUnit) -> NaiveDate {
     match unit {
         RepeatUnit::Day => date,
-        RepeatUnit::Week => {
-            date - CDuration::days(date.weekday().num_days_from_monday() as i64)
-        }
-        RepeatUnit::Month => {
-            NaiveDate::from_ymd_opt(date.year(), date.month(), 1).unwrap_or(date)
-        }
+        RepeatUnit::Week => date - CDuration::days(date.weekday().num_days_from_monday() as i64),
+        RepeatUnit::Month => NaiveDate::from_ymd_opt(date.year(), date.month(), 1).unwrap_or(date),
     }
 }
 
@@ -163,9 +165,11 @@ fn add_units(base: NaiveDate, n: i64, unit: RepeatUnit) -> NaiveDate {
         RepeatUnit::Week => base + CDuration::days(n * 7),
         RepeatUnit::Month => {
             if n >= 0 {
-                base.checked_add_months(Months::new(n as u32)).unwrap_or(base)
+                base.checked_add_months(Months::new(n as u32))
+                    .unwrap_or(base)
             } else {
-                base.checked_sub_months(Months::new((-n) as u32)).unwrap_or(base)
+                base.checked_sub_months(Months::new((-n) as u32))
+                    .unwrap_or(base)
             }
         }
     }
@@ -211,15 +215,27 @@ mod tests {
             parse_due("tomorrow"),
             Ok(Some(ymd(today() + CDuration::days(1))))
         );
-        assert_eq!(parse_due("tmr"), Ok(Some(ymd(today() + CDuration::days(1)))));
+        assert_eq!(
+            parse_due("tmr"),
+            Ok(Some(ymd(today() + CDuration::days(1))))
+        );
     }
 
     #[test]
     fn parse_due_relative_offsets() {
         assert_eq!(parse_due("+3"), Ok(Some(ymd(today() + CDuration::days(3)))));
-        assert_eq!(parse_due("+3d"), Ok(Some(ymd(today() + CDuration::days(3)))));
-        assert_eq!(parse_due("+2w"), Ok(Some(ymd(today() + CDuration::days(14)))));
-        assert_eq!(parse_due("2w"), Ok(Some(ymd(today() + CDuration::days(14)))));
+        assert_eq!(
+            parse_due("+3d"),
+            Ok(Some(ymd(today() + CDuration::days(3))))
+        );
+        assert_eq!(
+            parse_due("+2w"),
+            Ok(Some(ymd(today() + CDuration::days(14))))
+        );
+        assert_eq!(
+            parse_due("2w"),
+            Ok(Some(ymd(today() + CDuration::days(14))))
+        );
     }
 
     #[test]
@@ -286,7 +302,10 @@ mod tests {
         // Negative offsets are accepted even without a leading '+': the no-prefix path only
         // checks for a trailing unit letter, not a leading sign, so "-3d" reaches
         // try_relative via the `s.ends_with('d')` branch and "-3".parse::<i64>() succeeds.
-        assert_eq!(parse_due("-3d"), Ok(Some(ymd(today() - CDuration::days(3)))));
+        assert_eq!(
+            parse_due("-3d"),
+            Ok(Some(ymd(today() - CDuration::days(3))))
+        );
 
         // Negative month offsets go through checked_sub_months.
         let expected_neg_1mo = ymd(today()
@@ -302,7 +321,11 @@ mod tests {
     }
 
     fn rep(every: u32, unit: RepeatUnit, anchor: &str) -> Repeat {
-        Repeat { every, unit, anchor: anchor.to_string() }
+        Repeat {
+            every,
+            unit,
+            anchor: anchor.to_string(),
+        }
     }
 
     #[test]
@@ -375,12 +398,30 @@ mod tests {
     #[test]
     fn parse_repeat_understands_the_shorthand() {
         let anchor = "2026-08-26";
-        assert_eq!(parse_repeat("3d", anchor), Ok(Some(rep(3, RepeatUnit::Day, anchor))));
-        assert_eq!(parse_repeat("2w", anchor), Ok(Some(rep(2, RepeatUnit::Week, anchor))));
-        assert_eq!(parse_repeat("1mo", anchor), Ok(Some(rep(1, RepeatUnit::Month, anchor))));
-        assert_eq!(parse_repeat("daily", anchor), Ok(Some(rep(1, RepeatUnit::Day, anchor))));
-        assert_eq!(parse_repeat("weekly", anchor), Ok(Some(rep(1, RepeatUnit::Week, anchor))));
-        assert_eq!(parse_repeat("monthly", anchor), Ok(Some(rep(1, RepeatUnit::Month, anchor))));
+        assert_eq!(
+            parse_repeat("3d", anchor),
+            Ok(Some(rep(3, RepeatUnit::Day, anchor)))
+        );
+        assert_eq!(
+            parse_repeat("2w", anchor),
+            Ok(Some(rep(2, RepeatUnit::Week, anchor)))
+        );
+        assert_eq!(
+            parse_repeat("1mo", anchor),
+            Ok(Some(rep(1, RepeatUnit::Month, anchor)))
+        );
+        assert_eq!(
+            parse_repeat("daily", anchor),
+            Ok(Some(rep(1, RepeatUnit::Day, anchor)))
+        );
+        assert_eq!(
+            parse_repeat("weekly", anchor),
+            Ok(Some(rep(1, RepeatUnit::Week, anchor)))
+        );
+        assert_eq!(
+            parse_repeat("monthly", anchor),
+            Ok(Some(rep(1, RepeatUnit::Month, anchor)))
+        );
         assert_eq!(parse_repeat("none", anchor), Ok(None));
         assert_eq!(parse_repeat("banana", anchor), Err(()));
         assert_eq!(parse_repeat("0d", anchor), Err(()));

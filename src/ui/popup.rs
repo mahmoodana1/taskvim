@@ -56,10 +56,7 @@ pub fn draw_statusbar(f: &mut Frame, app: &App, area: Rect) {
                         .bg(ACCENT)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(
-                    format!(" {}{}", app.status, pend),
-                    Style::default().fg(DIM),
-                ),
+                Span::styled(format!(" {}{}", app.status, pend), Style::default().fg(DIM)),
             ])
         }
     };
@@ -72,7 +69,9 @@ pub fn draw_input_popup(f: &mut Frame, target: &InsertTarget, buf: &str) {
         InsertTarget::CourseTask { .. } => " New task in course  (…text !due) ",
         InsertTarget::Course => " New course / project ",
         InsertTarget::Section { .. } => " New section (subtitle) ",
-        InsertTarget::Due { .. } => " Due date  (YYYY-MM-DD · 7-10 · +3d · +2w · +1mo · today · none) ",
+        InsertTarget::Due { .. } => {
+            " Due date  (YYYY-MM-DD · 7-10 · +3d · +2w · +1mo · today · none) "
+        }
         InsertTarget::Repeat { .. } => " repeat: 3d · 2w · 1mo · daily · none ",
         InsertTarget::RenameTask { .. } => " Rename task ",
         InsertTarget::RenameSection { .. } => " Rename section ",
@@ -117,7 +116,9 @@ pub fn draw_due_menu(f: &mut Frame, app: &App, task: u64) {
         .and_then(|t| t.due.clone())
         .unwrap_or_else(|| String::from("(none)"));
 
-    let key_style = Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD);
+    let key_style = Style::default()
+        .fg(Color::LightGreen)
+        .add_modifier(Modifier::BOLD);
     let dim = Style::default().fg(DIM);
     let row = |k: &'static str, label: &'static str, when: String| {
         Line::from(vec![
@@ -153,10 +154,7 @@ pub fn draw_due_menu(f: &mut Frame, app: &App, task: u64) {
             ),
         ]),
         Line::from(""),
-        Line::from(Span::styled(
-            "  Esc / q  cancel",
-            Style::default().fg(DIM),
-        )),
+        Line::from(Span::styled("  Esc / q  cancel", Style::default().fg(DIM))),
     ];
 
     let area = f.area();
@@ -187,7 +185,9 @@ pub fn draw_repeat_menu(f: &mut Frame, app: &App, task: u64) {
         .map(|r| r.label())
         .unwrap_or_else(|| String::from("(not recurring)"));
 
-    let key_style = Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD);
+    let key_style = Style::default()
+        .fg(Color::LightGreen)
+        .add_modifier(Modifier::BOLD);
     let dim = Style::default().fg(DIM);
     let row = |k: &'static str, label: &'static str| {
         Line::from(vec![

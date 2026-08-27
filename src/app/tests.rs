@@ -204,7 +204,7 @@ fn set_dash_section_moves_the_task_and_follows_the_cursor() {
         sectioned(2, "b", DashSection::General),
     ]);
     app.task_sel = 5; // one of the tasks under General (exact row is irrelevant here —
-                       // set_dash_section acts on the task id, not the cursor)
+                      // set_dash_section acts on the task id, not the cursor)
 
     app.set_dash_section(1, DashSection::Important);
 
@@ -235,7 +235,10 @@ fn moving_a_task_down_stays_inside_its_section() {
         DashRow::SectionTop(DashSection::Agent),
         "task 2 did not leak into the Agent section"
     );
-    assert_eq!(app.task_sel, 5, "cursor did not move — already last in section");
+    assert_eq!(
+        app.task_sel, 5,
+        "cursor did not move — already last in section"
+    );
 }
 
 #[test]
@@ -285,25 +288,44 @@ use crate::model::{Repeat, RepeatUnit};
 
 fn habit(id: u64, text: &str, every: u32, unit: RepeatUnit, anchor: &str) -> crate::model::Task {
     let mut t = task(id, text);
-    t.repeat = Some(Repeat { every, unit, anchor: anchor.to_string() });
+    t.repeat = Some(Repeat {
+        every,
+        unit,
+        anchor: anchor.to_string(),
+    });
     t
 }
 
 #[test]
 fn tick_resets_a_completed_habit_when_the_period_rolls_over() {
-    let mut app = test_app(vec![habit(1, "water plants", 1, RepeatUnit::Day, "2026-08-01")]);
+    let mut app = test_app(vec![habit(
+        1,
+        "water plants",
+        1,
+        RepeatUnit::Day,
+        "2026-08-01",
+    )]);
     app.data.tasks[0].completed = true;
     app.data.tasks[0].period = Some("2026-08-25".to_string());
 
     app.tick_on(d("2026-08-26"));
 
-    assert!(!app.data.tasks[0].completed, "new day, task is pending again");
+    assert!(
+        !app.data.tasks[0].completed,
+        "new day, task is pending again"
+    );
     assert_eq!(app.data.tasks[0].period, Some("2026-08-26".to_string()));
 }
 
 #[test]
 fn tick_leaves_a_habit_alone_inside_its_period() {
-    let mut app = test_app(vec![habit(1, "water plants", 1, RepeatUnit::Day, "2026-08-01")]);
+    let mut app = test_app(vec![habit(
+        1,
+        "water plants",
+        1,
+        RepeatUnit::Day,
+        "2026-08-01",
+    )]);
     app.data.tasks[0].completed = true;
     app.data.tasks[0].period = Some("2026-08-26".to_string());
 
@@ -325,7 +347,13 @@ fn tick_never_touches_non_recurring_tasks() {
 
 #[test]
 fn tick_does_not_push_onto_the_undo_stack() {
-    let mut app = test_app(vec![habit(1, "water plants", 1, RepeatUnit::Day, "2026-08-01")]);
+    let mut app = test_app(vec![habit(
+        1,
+        "water plants",
+        1,
+        RepeatUnit::Day,
+        "2026-08-01",
+    )]);
     app.data.tasks[0].completed = true;
     app.data.tasks[0].period = Some("2026-08-25".to_string());
 
@@ -339,7 +367,13 @@ fn tick_does_not_push_onto_the_undo_stack() {
 
 #[test]
 fn a_missed_period_leaves_no_trace() {
-    let mut app = test_app(vec![habit(1, "water plants", 1, RepeatUnit::Day, "2026-08-01")]);
+    let mut app = test_app(vec![habit(
+        1,
+        "water plants",
+        1,
+        RepeatUnit::Day,
+        "2026-08-01",
+    )]);
     app.data.tasks[0].period = Some("2026-08-20".to_string()); // never completed
 
     app.tick_on(d("2026-08-26"));
@@ -379,11 +413,21 @@ fn unlinking_a_task_leaves_its_section_alone() {
 
 #[test]
 fn completing_a_habit_logs_a_commit_and_hides_it() {
-    let mut app = test_app(vec![habit(1, "water plants", 1, RepeatUnit::Day, "2026-08-01")]);
+    let mut app = test_app(vec![habit(
+        1,
+        "water plants",
+        1,
+        RepeatUnit::Day,
+        "2026-08-01",
+    )]);
 
     app.toggle_complete(1);
 
-    assert_eq!(app.data.log.len(), 1, "habits feed the heatmap like anything else");
+    assert_eq!(
+        app.data.log.len(),
+        1,
+        "habits feed the heatmap like anything else"
+    );
     assert!(app.data.tasks[0].completed);
     assert!(
         app.dash_ids().is_empty(),
@@ -418,7 +462,13 @@ fn habits_are_excluded_from_course_progress() {
 
 #[test]
 fn setting_a_due_date_on_a_habit_is_refused() {
-    let mut app = test_app(vec![habit(1, "water plants", 1, RepeatUnit::Day, "2026-08-01")]);
+    let mut app = test_app(vec![habit(
+        1,
+        "water plants",
+        1,
+        RepeatUnit::Day,
+        "2026-08-01",
+    )]);
 
     app.apply_due(1, Some("2026-09-01".to_string()));
 
@@ -430,11 +480,14 @@ fn setting_a_repeat_clears_an_existing_due_date() {
     let mut app = test_app(vec![task(1, "water plants")]);
     app.data.tasks[0].due = Some("2026-09-01".to_string());
 
-    app.set_repeat(1, Some(Repeat {
-        every: 1,
-        unit: RepeatUnit::Day,
-        anchor: "2026-08-26".to_string(),
-    }));
+    app.set_repeat(
+        1,
+        Some(Repeat {
+            every: 1,
+            unit: RepeatUnit::Day,
+            anchor: "2026-08-26".to_string(),
+        }),
+    );
 
     assert_eq!(app.data.tasks[0].due, None);
     assert!(app.data.tasks[0].repeat.is_some());
@@ -471,7 +524,10 @@ fn moving_up_skips_box_chrome() {
 
     app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
 
-    assert_eq!(app.task_sel, 3, "General's header, not its top border chrome");
+    assert_eq!(
+        app.task_sel, 3,
+        "General's header, not its top border chrome"
+    );
 }
 
 #[test]
@@ -497,7 +553,11 @@ fn g_jumps_to_the_last_selectable_row() {
     app.handle_key(KeyCode::Char('G'), KeyModifiers::NONE);
 
     let row = app.dash_rows()[app.task_sel];
-    assert_eq!(row, DashRow::Task(1), "G lands on the task, not the box bottom");
+    assert_eq!(
+        row,
+        DashRow::Task(1),
+        "G lands on the task, not the box bottom"
+    );
 }
 
 #[test]

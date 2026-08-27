@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use chrono::{Datelike, Local, NaiveDate};
 
-use crate::model::{Data, DashSection, LogEntry, Project, Section, Task};
+use crate::model::{DashSection, Data, LogEntry, Project, Section, Task};
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum Pane {
@@ -95,7 +95,7 @@ pub struct App {
     pub cur_course: Option<u64>,
     pub course_row: usize, // cursor inside the course modal
     pub log_sel: usize,
-    pub day_sel: usize,    // selected day in day log view
+    pub day_sel: usize,                // selected day in day log view
     pub selected_date: Option<String>, // YYYY-MM-DD format for day view
     pub year: i32,
     pub pending: Option<char>, // gg / dd
@@ -339,7 +339,10 @@ impl App {
             .filter(|e| match e.task {
                 Some(id) => self.data.dashboard.contains(&id),
                 None => self.data.dashboard.iter().any(|d| {
-                    self.data.tasks.iter().any(|t| t.id == *d && t.text == e.text)
+                    self.data
+                        .tasks
+                        .iter()
+                        .any(|t| t.id == *d && t.text == e.text)
                 }),
             })
             .count() as u32
@@ -360,7 +363,11 @@ impl App {
             rows.push(DashRow::SectionTop(sec));
             let before = rows.len();
             for id in &visible {
-                if self.task(*id).map(|t| t.dash_section == sec).unwrap_or(false) {
+                if self
+                    .task(*id)
+                    .map(|t| t.dash_section == sec)
+                    .unwrap_or(false)
+                {
                     rows.push(DashRow::Task(*id));
                 }
             }

@@ -17,26 +17,32 @@ use crate::ui::theme::{
 };
 
 pub fn draw_dashboard(f: &mut Frame, app: &App, area: Rect) {
-    let cols = Layout::horizontal([Constraint::Length(40), Constraint::Min(30)]).split(area);
+    // Task-forward: the working set is the point of the app, so it gets the
+    // larger share. The right column is a stats rail, sized to its content so
+    // no panel renders a field of blank rows.
+    let cols =
+        Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)]).split(area);
     draw_task_sidebar(f, app, cols[0]);
 
-    let main = Layout::vertical([
+    // Every panel is sized to its content and the slack falls off the bottom,
+    // so nothing renders a field of blank rows the way the old courses panel
+    // did. Two rows per course: its name, then its progress bar.
+    let courses_h = (app.data.projects.len() as u16 * 2 + 2).clamp(3, 16);
+    let rail = Layout::vertical([
         Constraint::Length(3),  // greeting
-        Constraint::Length(6),  // priority + daily goal (reduced)
-        Constraint::Length(10), // heatmap (reduced)
-        Constraint::Min(10),    // courses (increased minimum)
+        Constraint::Length(3),  // now
+        Constraint::Length(4),  // goal + streak
+        Constraint::Length(11), // heatmap
+        Constraint::Length(courses_h),
+        Constraint::Min(0), // slack
     ])
     .split(cols[1]);
 
-    draw_greeting(f, main[0]);
-
-    let cards =
-        Layout::horizontal([Constraint::Percentage(58), Constraint::Percentage(42)]).split(main[1]);
-    draw_priority(f, app, cards[0]);
-    draw_daily_goal(f, app, cards[1]);
-
-    draw_heatmap(f, app, main[2]);
-    draw_courses(f, app, main[3]);
+    draw_greeting(f, rail[0]);
+    draw_priority(f, app, rail[1]);
+    draw_daily_goal(f, app, rail[2]);
+    draw_heatmap(f, app, rail[3]);
+    draw_courses(f, app, rail[4]);
 }
 
 pub fn draw_greeting(f: &mut Frame, area: Rect) {
@@ -231,7 +237,9 @@ fn box_task(app: &App, t: &Task, width: usize, color: Color) -> ListItem<'static
 
     // `used <= avail` by construction, so this padding is always exact and the
     // closing bar always lands in the same column.
-    line.push(Span::raw(" ".repeat(inner.saturating_sub(used + badge_w + 2))));
+    line.push(Span::raw(
+        " ".repeat(inner.saturating_sub(used + badge_w + 2)),
+    ));
     if let Some(b) = badge {
         line.push(b);
     }
@@ -276,7 +284,11 @@ pub fn draw_task_sidebar(f: &mut Frame, app: &App, area: Rect) {
                 let count = app
                     .dash_ids()
                     .iter()
-                    .filter(|id| app.task(**id).map(|t| t.dash_section == *sec).unwrap_or(false))
+                    .filter(|id| {
+                        app.task(**id)
+                            .map(|t| t.dash_section == *sec)
+                            .unwrap_or(false)
+                    })
                     .count();
                 box_top(*sec, count, width, section_color(*sec))
             }
@@ -298,7 +310,9 @@ pub fn draw_task_sidebar(f: &mut Frame, app: &App, area: Rect) {
         } else {
             "\n  dashboard is clear —\n\n  a       add a task here\n  ⏎ on a course, then p\n          to link its tasks\n  r       pull a random one\n          from the backlog".to_string()
         };
-        let empty = Paragraph::new(msg).style(Style::default().fg(DIM)).block(block);
+        let empty = Paragraph::new(msg)
+            .style(Style::default().fg(DIM))
+            .block(block);
         f.render_widget(empty, area);
         return;
     }

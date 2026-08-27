@@ -5,7 +5,7 @@ use chrono::{Datelike, Local};
 use crossterm::event::{KeyCode, KeyModifiers};
 
 use crate::app::{App, InsertTarget, Mode, Pane, Row, View};
-use crate::model::{Data, DashSection, Repeat, RepeatUnit};
+use crate::model::{DashSection, Data, Repeat, RepeatUnit};
 
 impl App {
     pub fn handle_key(&mut self, code: KeyCode, mods: KeyModifiers) {
@@ -87,11 +87,12 @@ impl App {
             KeyCode::Char('5') => self.set_due_days(task, 14),
             KeyCode::Char('6') => self.set_due_months(task, 1),
             KeyCode::Char('7') => self.set_due_months(task, 3),
-            KeyCode::Char('0') | KeyCode::Char('n') | KeyCode::Char('-') => {
-                self.clear_due(task)
-            }
+            KeyCode::Char('0') | KeyCode::Char('n') | KeyCode::Char('-') => self.clear_due(task),
             KeyCode::Char('c') | KeyCode::Char('i') | KeyCode::Char('/') => {
-                let pre = self.task(task).and_then(|t| t.due.clone()).unwrap_or_default();
+                let pre = self
+                    .task(task)
+                    .and_then(|t| t.due.clone())
+                    .unwrap_or_default();
                 self.mode = Mode::Insert(InsertTarget::Due { task }, pre);
             }
             _ => {}
@@ -100,17 +101,29 @@ impl App {
 
     fn handle_repeat_menu(&mut self, task: u64, code: KeyCode) {
         let anchor = Local::now().date_naive().format("%Y-%m-%d").to_string();
-        let mk = |every, unit| Some(Repeat { every, unit, anchor: anchor.clone() });
+        let mk = |every, unit| {
+            Some(Repeat {
+                every,
+                unit,
+                anchor: anchor.clone(),
+            })
+        };
         match code {
             KeyCode::Esc | KeyCode::Char('q') => {
                 self.mode = Mode::Normal;
                 return;
             }
-            KeyCode::Char('1') | KeyCode::Char('d') => self.set_repeat(task, mk(1, RepeatUnit::Day)),
+            KeyCode::Char('1') | KeyCode::Char('d') => {
+                self.set_repeat(task, mk(1, RepeatUnit::Day))
+            }
             KeyCode::Char('2') => self.set_repeat(task, mk(3, RepeatUnit::Day)),
-            KeyCode::Char('3') | KeyCode::Char('w') => self.set_repeat(task, mk(1, RepeatUnit::Week)),
+            KeyCode::Char('3') | KeyCode::Char('w') => {
+                self.set_repeat(task, mk(1, RepeatUnit::Week))
+            }
             KeyCode::Char('4') => self.set_repeat(task, mk(2, RepeatUnit::Week)),
-            KeyCode::Char('5') | KeyCode::Char('m') => self.set_repeat(task, mk(1, RepeatUnit::Month)),
+            KeyCode::Char('5') | KeyCode::Char('m') => {
+                self.set_repeat(task, mk(1, RepeatUnit::Month))
+            }
             KeyCode::Char('0') | KeyCode::Char('n') | KeyCode::Char('-') => {
                 self.set_repeat(task, None)
             }
@@ -216,9 +229,7 @@ impl App {
                     self.course_row += 1;
                 }
             }
-            KeyCode::Char('k') | KeyCode::Up => {
-                self.course_row = self.course_row.saturating_sub(1)
-            }
+            KeyCode::Char('k') | KeyCode::Up => self.course_row = self.course_row.saturating_sub(1),
             KeyCode::Char('g') => {
                 if pend == Some('g') {
                     self.course_row = 0;
@@ -301,7 +312,10 @@ impl App {
                 _ => {}
             },
             KeyCode::Char('R') => {
-                let pre = self.project(pid).map(|p| p.name.clone()).unwrap_or_default();
+                let pre = self
+                    .project(pid)
+                    .map(|p| p.name.clone())
+                    .unwrap_or_default();
                 self.mode = Mode::Insert(InsertTarget::RenameCourse { project: pid }, pre);
             }
             KeyCode::Char('d') => {
@@ -494,7 +508,10 @@ impl App {
             KeyCode::Char('t') => {
                 if self.pane == Pane::Tasks {
                     if let Some(tid) = self.selected_task() {
-                        let pre = self.task(tid).and_then(|t| t.due.clone()).unwrap_or_default();
+                        let pre = self
+                            .task(tid)
+                            .and_then(|t| t.due.clone())
+                            .unwrap_or_default();
                         self.mode = Mode::Insert(InsertTarget::Due { task: tid }, pre);
                     }
                 }
@@ -607,27 +624,24 @@ impl App {
                 self.status = String::from("completed history cleared");
                 self.save_quiet();
             }
-            "reset" => {
-                match Data::reset() {
-                    Ok(_) => {
-                        self.data = Data::default();
-                        self.data.sanitize();
-                        self.saved_snapshot = self.data.clone();
-                        self.undo_stack.clear();
-                        self.redo_stack.clear();
-                        self.task_sel = 0;
-                        self.course_sel = 0;
-                        self.log_sel = 0;
-                        self.cur_course = None;
-                        self.view = View::Dashboard;
-                        let _ = self.data.save();
-                        self.status = String::from(
-                            "wiped local data — previous file kept as data.json.bak",
-                        );
-                    }
-                    Err(e) => self.status = format!("reset failed: {}", e),
+            "reset" => match Data::reset() {
+                Ok(_) => {
+                    self.data = Data::default();
+                    self.data.sanitize();
+                    self.saved_snapshot = self.data.clone();
+                    self.undo_stack.clear();
+                    self.redo_stack.clear();
+                    self.task_sel = 0;
+                    self.course_sel = 0;
+                    self.log_sel = 0;
+                    self.cur_course = None;
+                    self.view = View::Dashboard;
+                    let _ = self.data.save();
+                    self.status =
+                        String::from("wiped local data — previous file kept as data.json.bak");
                 }
-            }
+                Err(e) => self.status = format!("reset failed: {}", e),
+            },
             "" => {}
             other => self.status = format!("not a taskvim command: :{}", other),
         }
