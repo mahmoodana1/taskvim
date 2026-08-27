@@ -342,9 +342,6 @@ impl App {
 
     /// The section the cursor sits in — its own header, or the header above
     /// the selected task. Used to decide where `a` adds a new task.
-    // No callers yet — the key handlers (Task 15) are what consume this.
-    // Remove this allow once it lands.
-    #[allow(dead_code)]
     pub fn selected_section(&self) -> DashSection {
         let rows = self.dash_rows();
         for i in (0..=self.task_sel.min(rows.len().saturating_sub(1))).rev() {

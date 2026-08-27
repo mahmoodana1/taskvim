@@ -18,6 +18,7 @@ use ratatui::DefaultTerminal;
 mod app;
 mod due;
 mod model;
+mod parse;
 mod ui;
 
 use app::App;

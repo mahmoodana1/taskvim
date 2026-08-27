@@ -25,49 +25,6 @@ impl App {
         (text, None)
     }
 
-    /// Strip trailing `!due` token and a trailing `@course`, in either order.
-    /// Examples: "read ch.4 @algo !fri+3"  ·  "lab 2 !2026-07-10 @stat"
-    pub fn parse_task_input(&self, buf: &str) -> (String, Option<u64>, Option<String>) {
-        let mut text = buf.trim().to_string();
-        let mut project = None;
-        let mut due = None;
-        for _ in 0..2 {
-            // trailing !due token
-            if due.is_none() {
-                if let Some(tok) = text.split_whitespace().last() {
-                    if let Some(spec) = tok.strip_prefix('!') {
-                        if let Ok(d) = parse_due(spec) {
-                            due = d;
-                            let cut = text.rfind('!').unwrap();
-                            text = text[..cut].trim().to_string();
-                            continue;
-                        }
-                    }
-                }
-            }
-            // trailing @course (may contain spaces: "@algorithms 2")
-            if project.is_none() {
-                if let Some(pos) = text.rfind('@') {
-                    let name = text[pos + 1..].trim().to_lowercase();
-                    if !name.is_empty() && pos > 0 {
-                        if let Some(p) = self
-                            .data
-                            .projects
-                            .iter()
-                            .find(|p| p.name.to_lowercase().starts_with(&name))
-                        {
-                            project = Some(p.id);
-                            text = text[..pos].trim().to_string();
-                            continue;
-                        }
-                    }
-                }
-            }
-            break;
-        }
-        (text, project, due)
-    }
-
     pub fn add_task(
         &mut self,
         text: String,
@@ -405,8 +362,21 @@ impl App {
     pub fn confirm_insert(&mut self, target: InsertTarget, buf: String) {
         match target {
             InsertTarget::DashTask => {
-                let (text, project, due) = self.parse_task_input(&buf);
-                self.add_task(text, project, None, due, true);
+                let p = crate::parse::parse_task_input(&self.data.projects, &buf);
+                let section = p.section.unwrap_or_else(|| self.selected_section());
+                if let Some(id) = self.add_task(p.text, p.project, None, p.due, true) {
+                    if let Some(t) = self.data.tasks.iter_mut().find(|t| t.id == id) {
+                        t.dash_section = section;
+                    }
+                    if let Some(pos) = self
+                        .dash_rows()
+                        .iter()
+                        .position(|r| *r == DashRow::Task(id))
+                    {
+                        self.task_sel = pos;
+                    }
+                    self.save_quiet();
+                }
             }
             InsertTarget::CourseTask { project, section } => {
                 let (text, due) = self.parse_due_suffix(&buf);
