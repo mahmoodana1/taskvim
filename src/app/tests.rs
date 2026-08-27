@@ -1,5 +1,10 @@
 use crate::app::App;
 use crate::model::{Data, Task};
+use chrono::NaiveDate;
+
+fn d(s: &str) -> NaiveDate {
+    NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+}
 
 /// An App built around in-memory data. Note that methods under test call
 /// `save_quiet()`, which writes to `Data::path()` — tests must be run with
@@ -237,4 +242,72 @@ fn pinning_a_course_task_lands_it_in_general() {
 
     assert_eq!(app.data.tasks[0].dash_section, DashSection::General);
     assert!(app.data.dashboard.contains(&9));
+}
+
+use crate::model::{Repeat, RepeatUnit};
+
+fn habit(id: u64, text: &str, every: u32, unit: RepeatUnit, anchor: &str) -> crate::model::Task {
+    let mut t = task(id, text);
+    t.repeat = Some(Repeat { every, unit, anchor: anchor.to_string() });
+    t
+}
+
+#[test]
+fn tick_resets_a_completed_habit_when_the_period_rolls_over() {
+    let mut app = test_app(vec![habit(1, "water plants", 1, RepeatUnit::Day, "2026-08-01")]);
+    app.data.tasks[0].completed = true;
+    app.data.tasks[0].period = Some("2026-08-25".to_string());
+
+    app.tick_on(d("2026-08-26"));
+
+    assert!(!app.data.tasks[0].completed, "new day, task is pending again");
+    assert_eq!(app.data.tasks[0].period, Some("2026-08-26".to_string()));
+}
+
+#[test]
+fn tick_leaves_a_habit_alone_inside_its_period() {
+    let mut app = test_app(vec![habit(1, "water plants", 1, RepeatUnit::Day, "2026-08-01")]);
+    app.data.tasks[0].completed = true;
+    app.data.tasks[0].period = Some("2026-08-26".to_string());
+
+    app.tick_on(d("2026-08-26"));
+
+    assert!(app.data.tasks[0].completed, "same day, stays done");
+}
+
+#[test]
+fn tick_never_touches_non_recurring_tasks() {
+    let mut app = test_app(vec![task(1, "one off")]);
+    app.data.tasks[0].completed = true;
+
+    app.tick_on(d("2026-08-26"));
+
+    assert!(app.data.tasks[0].completed);
+    assert_eq!(app.data.tasks[0].period, None);
+}
+
+#[test]
+fn tick_does_not_push_onto_the_undo_stack() {
+    let mut app = test_app(vec![habit(1, "water plants", 1, RepeatUnit::Day, "2026-08-01")]);
+    app.data.tasks[0].completed = true;
+    app.data.tasks[0].period = Some("2026-08-25".to_string());
+
+    app.tick_on(d("2026-08-26"));
+
+    assert!(
+        app.undo_stack.is_empty(),
+        "a midnight rollover is not a user edit — u must undo the last real action"
+    );
+}
+
+#[test]
+fn a_missed_period_leaves_no_trace() {
+    let mut app = test_app(vec![habit(1, "water plants", 1, RepeatUnit::Day, "2026-08-01")]);
+    app.data.tasks[0].period = Some("2026-08-20".to_string()); // never completed
+
+    app.tick_on(d("2026-08-26"));
+
+    assert!(!app.data.tasks[0].completed);
+    assert_eq!(app.data.log.len(), 0, "no backlog, no phantom commits");
+    assert_eq!(app.data.tasks[0].due, None, "habits never gain a due date");
 }

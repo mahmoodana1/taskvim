@@ -86,13 +86,18 @@ pub struct App {
     pub undo_stack: Vec<Data>,
     /// Undone data states, most recent last.
     pub redo_stack: Vec<Data>,
+    /// The date `tick()` was last run for; the run loop compares this against
+    /// today to catch midnight rollovers while the app sits open.
+    pub last_tick: NaiveDate,
 }
 
 pub const UNDO_HISTORY_LIMIT: usize = 100;
 
 impl App {
     pub fn new() -> App {
-        App::with_data(Data::load())
+        let mut app = App::with_data(Data::load());
+        app.tick();
+        app
     }
 
     /// Build an App around already-loaded data. Used by `new()` and by tests.
@@ -117,6 +122,7 @@ impl App {
             saved_snapshot,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
+            last_tick: Local::now().date_naive(),
         }
     }
 

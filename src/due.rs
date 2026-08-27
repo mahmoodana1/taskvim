@@ -99,7 +99,6 @@ pub fn parse_due(spec: &str) -> Result<Option<String>, ()> {
 
 /// Snap a date back to the start of its grid cell: the day itself, its Monday,
 /// or the 1st of its month.
-#[allow(dead_code)] // consumed by Task 20 (the tick) and Task 22 (the repeat menu)
 pub fn align(date: NaiveDate, unit: RepeatUnit) -> NaiveDate {
     match unit {
         RepeatUnit::Day => date,
@@ -113,7 +112,6 @@ pub fn align(date: NaiveDate, unit: RepeatUnit) -> NaiveDate {
 }
 
 /// Whole grid cells from `base` to `target`. Both must already be aligned.
-#[allow(dead_code)] // consumed via period_start, by Task 20 (the tick)
 fn units_between(base: NaiveDate, target: NaiveDate, unit: RepeatUnit) -> i64 {
     match unit {
         RepeatUnit::Day => (target - base).num_days(),
@@ -125,7 +123,6 @@ fn units_between(base: NaiveDate, target: NaiveDate, unit: RepeatUnit) -> i64 {
     }
 }
 
-#[allow(dead_code)] // consumed via period_start, by Task 20 (the tick)
 fn add_units(base: NaiveDate, n: i64, unit: RepeatUnit) -> NaiveDate {
     match unit {
         RepeatUnit::Day => base + CDuration::days(n),
@@ -143,7 +140,6 @@ fn add_units(base: NaiveDate, n: i64, unit: RepeatUnit) -> NaiveDate {
 /// The start of the period `today` falls in, on the fixed grid defined by the
 /// repeat's unit, stride and anchor. Ticks land here regardless of whether the
 /// task was ever completed.
-#[allow(dead_code)] // consumed by Task 20 (the tick)
 pub fn period_start(today: NaiveDate, repeat: &Repeat) -> NaiveDate {
     let anchor = NaiveDate::parse_from_str(&repeat.anchor, "%Y-%m-%d").unwrap_or(today);
     let base = align(anchor, repeat.unit);

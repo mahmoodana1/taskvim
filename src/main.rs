@@ -27,6 +27,13 @@ use ui::ui;
 fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
     while !app.quit {
         terminal.draw(|f| ui(f, app))?;
+        // The poll below already wakes us ~2.5x/second, so checking the date
+        // here costs nothing and catches midnight while the app sits open.
+        let today = chrono::Local::now().date_naive();
+        if today != app.last_tick {
+            app.last_tick = today;
+            app.tick();
+        }
         if event::poll(Duration::from_millis(400))? {
             if let Event::Key(k) = event::read()? {
                 if k.kind == KeyEventKind::Press {

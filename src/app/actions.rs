@@ -1,7 +1,7 @@
 //! The mutating operations on `App`: adding, completing, deleting,
 //! reordering, and pinning tasks, sections, and courses.
 
-use chrono::{Duration as CDuration, Local, Months};
+use chrono::{Duration as CDuration, Local, Months, NaiveDate};
 use rand::Rng;
 
 use crate::app::{App, DashRow, InsertTarget, Mode, Pane, Row, View};
@@ -497,6 +497,39 @@ impl App {
         }
         self.status = format!("moved to {}", sec.title());
         self.save_quiet();
+    }
+
+    /// Reset every habit whose period has rolled over. Pure state transition
+    /// against an explicit date so it can be tested without waiting for
+    /// midnight; `tick()` supplies today.
+    ///
+    /// Deliberately bypasses the undo stack: a rollover is not a user edit, so
+    /// pressing `u` after midnight should undo your last real action.
+    pub fn tick_on(&mut self, today: NaiveDate) -> bool {
+        let mut changed = false;
+        for t in self.data.tasks.iter_mut() {
+            let Some(r) = t.repeat.as_ref() else { continue };
+            let start = crate::due::period_start(today, r).format("%Y-%m-%d").to_string();
+            if t.period.as_deref() != Some(start.as_str()) {
+                t.period = Some(start);
+                t.completed = false;
+                // Habits never carry a due date; clear any left by an edit
+                // that predates the repeat being set.
+                t.due = None;
+                changed = true;
+            }
+        }
+        if changed {
+            self.saved_snapshot = self.data.clone();
+            let _ = self.data.save();
+            self.clamp();
+        }
+        changed
+    }
+
+    /// Run the tick for today.
+    pub fn tick(&mut self) -> bool {
+        self.tick_on(Local::now().date_naive())
     }
 
     pub fn open_course(&mut self, pid: u64) {
