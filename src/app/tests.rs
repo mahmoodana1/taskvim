@@ -62,14 +62,20 @@ fn uncompleting_falls_back_to_text_match_for_migrated_entries() {
 }
 
 #[test]
-fn daily_count_does_not_double_count_same_named_tasks() {
-    let mut app = test_app(vec![task(1, "review"), task(2, "review")]);
+fn daily_count_ignores_completions_from_non_dashboard_tasks() {
+    // Only task 1 goes on the dashboard.
+    let mut app = test_app(vec![task(1, "review")]);
 
-    app.toggle_complete(1);
+    // Task 2 shares its text but is never added to the dashboard.
+    app.data.tasks.push(task(2, "review"));
+
+    // Complete the off-dashboard task. This must not count toward the
+    // dashboard's daily total, even though its text matches task 1.
+    app.toggle_complete(2);
 
     assert_eq!(
         app.dash_completed_today(),
-        1,
-        "one completion counts once, even though task 2 shares its text"
+        0,
+        "completing a non-dashboard task must not count, even though its text matches a dashboard task"
     );
 }
