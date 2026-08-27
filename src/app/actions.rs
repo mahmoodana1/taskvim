@@ -160,6 +160,8 @@ impl App {
                 section_name: sname,
                 date: now.format("%Y-%m-%d").to_string(),
                 time: now.format("%H:%M").to_string(),
+                // Wiring the back-link is Task 10/11's job; leave unset here.
+                task: None,
             });
             let done = self.today_count();
             self.status = if done >= self.data.daily_goal {

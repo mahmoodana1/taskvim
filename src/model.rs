@@ -49,6 +49,10 @@ pub struct LogEntry {
     pub section_name: String,
     pub date: String, // YYYY-MM-DD
     pub time: String, // HH:MM
+    /// Back-link to the task that produced this entry. `None` on entries
+    /// migrated from v2, which predate the link — see `sanitize`.
+    #[serde(default)]
+    pub task: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone, PartialEq)]
@@ -117,6 +121,13 @@ impl Data {
             self.version = 2;
         }
 
+        // v3: LogEntry gained `task`, Task gained `dash_section` + `repeat` +
+        // `period`. All are `#[serde(default)]`, so migration is just the
+        // version bump — no field needs touching and nothing is dropped.
+        if self.version < 3 {
+            self.version = 3;
+        }
+
         let mut seen = HashSet::new();
         self.projects.retain(|p| seen.insert(p.id));
         seen.clear();
@@ -167,5 +178,51 @@ impl Data {
             let _ = fs::rename(&p, &bak);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn v2_json() -> &'static str {
+        r#"{
+            "version": 2,
+            "tasks": [{"id": 1, "text": "old task", "project": null, "section": null,
+                       "due": null, "completed": false}],
+            "projects": [],
+            "sections": [],
+            "log": [{"id": 2, "text": "old task", "project": null, "project_name": "",
+                     "color": 0, "section": null, "section_name": "",
+                     "date": "2026-08-01", "time": "10:00"}],
+            "dashboard": [1],
+            "daily_goal": 2,
+            "next_id": 3,
+            "next_color": 0
+        }"#
+    }
+
+    #[test]
+    fn v2_file_migrates_to_v3_without_losing_data() {
+        let mut d: Data = serde_json::from_str(v2_json()).expect("v2 json parses");
+        d.sanitize();
+
+        assert_eq!(d.version, 3);
+        assert_eq!(d.tasks.len(), 1);
+        assert_eq!(d.log.len(), 1);
+        assert_eq!(d.dashboard, vec![1]);
+        assert_eq!(d.log[0].task, None, "migrated entries have no back-link");
+    }
+
+    #[test]
+    fn v3_roundtrips_through_json() {
+        let mut d: Data = serde_json::from_str(v2_json()).unwrap();
+        d.sanitize();
+        d.log[0].task = Some(1);
+
+        let s = serde_json::to_string(&d).unwrap();
+        let back: Data = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.log[0].task, Some(1));
+        assert_eq!(back.version, 3);
     }
 }
