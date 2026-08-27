@@ -60,3 +60,16 @@ fn uncompleting_falls_back_to_text_match_for_migrated_entries() {
     app.toggle_complete(1);
     assert_eq!(app.data.log.len(), 0, "text fallback still finds it");
 }
+
+#[test]
+fn daily_count_does_not_double_count_same_named_tasks() {
+    let mut app = test_app(vec![task(1, "review"), task(2, "review")]);
+
+    app.toggle_complete(1);
+
+    assert_eq!(
+        app.dash_completed_today(),
+        1,
+        "one completion counts once, even though task 2 shares its text"
+    );
+}

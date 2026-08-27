@@ -283,14 +283,22 @@ impl App {
             .collect()
     }
 
+    /// How many of today's commits came from tasks currently on the dashboard.
+    /// Joins on the `LogEntry.task` back-link; entries migrated from v2 have
+    /// no link and fall back to the old text join so migration day doesn't
+    /// visibly reset the counter.
     pub fn dash_completed_today(&self) -> u32 {
         let today = Local::now().date_naive().format("%Y-%m-%d").to_string();
         self.data
             .log
             .iter()
-            .filter(|e| e.date == today && self.data.dashboard.iter().any(|d| {
-                self.data.tasks.iter().any(|t| t.id == *d && t.text == e.text)
-            }))
+            .filter(|e| e.date == today)
+            .filter(|e| match e.task {
+                Some(id) => self.data.dashboard.contains(&id),
+                None => self.data.dashboard.iter().any(|d| {
+                    self.data.tasks.iter().any(|t| t.id == *d && t.text == e.text)
+                }),
+            })
             .count() as u32
     }
 
