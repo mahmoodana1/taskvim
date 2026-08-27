@@ -31,6 +31,7 @@ pub fn task(id: u64, text: &str) -> Task {
         dash_section: crate::model::DashSection::General,
         repeat: None,
         period: None,
+        relink: false,
     }
 }
 
@@ -442,6 +443,7 @@ fn habits_are_excluded_from_course_progress() {
         id: 7,
         name: "Algorithms 2".into(),
         color: 0,
+        archived: false,
     });
 
     let mut one_off = task(1, "lecture 7");

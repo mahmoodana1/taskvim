@@ -47,6 +47,7 @@ impl App {
             dash_section: crate::model::DashSection::default(),
             repeat: None,
             period: None,
+            relink: false,
         });
         if pin {
             self.data.dashboard.push(id);
@@ -63,7 +64,12 @@ impl App {
         let id = self.data.new_id();
         let color = self.data.next_color;
         self.data.next_color = (self.data.next_color + 1) % COLOR_COUNT;
-        self.data.projects.push(Project { id, name, color });
+        self.data.projects.push(Project {
+            id,
+            name,
+            color,
+            archived: false,
+        });
         self.course_sel = self.data.projects.len() - 1;
         self.status = String::from("course added — ⏎ opens it");
         self.save_quiet();

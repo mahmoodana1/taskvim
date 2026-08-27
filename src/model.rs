@@ -29,6 +29,12 @@ pub struct Task {
     /// tick stamps it.
     #[serde(default)]
     pub period: Option<String>,
+    /// This task was on the dashboard when its course was archived, so
+    /// un-archiving should put it back. Lives on the task rather than as a
+    /// list of ids on the project, so it cannot dangle — it dies with the
+    /// task it belongs to.
+    #[serde(default)]
+    pub relink: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -104,6 +110,11 @@ pub struct Project {
     pub id: u64,
     pub name: String,
     pub color: usize,
+    /// Archived courses are hidden from the COURSES panel and from Tab
+    /// cycling. Their tasks still exist and still count toward this course's
+    /// own progress.
+    #[serde(default)]
+    pub archived: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
@@ -202,6 +213,12 @@ impl Data {
             self.version = 3;
         }
 
+        // v4: Project gained `archived`, Task gained `relink`. Both are
+        // `#[serde(default)]`, so migration is just the version bump.
+        if self.version < 4 {
+            self.version = 4;
+        }
+
         let mut seen = HashSet::new();
         self.projects.retain(|p| seen.insert(p.id));
         seen.clear();
@@ -277,11 +294,11 @@ mod tests {
     }
 
     #[test]
-    fn v2_file_migrates_to_v3_without_losing_data() {
+    fn v2_file_migrates_without_losing_data() {
         let mut d: Data = serde_json::from_str(v2_json()).expect("v2 json parses");
         d.sanitize();
 
-        assert_eq!(d.version, 3);
+        assert_eq!(d.version, 4, "migration runs all the way to the current version");
         assert_eq!(d.tasks.len(), 1);
         assert_eq!(d.log.len(), 1);
         assert_eq!(d.dashboard, vec![1]);
@@ -289,7 +306,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_roundtrips_through_json() {
+    fn log_task_backlink_roundtrips_through_json() {
         let mut d: Data = serde_json::from_str(v2_json()).unwrap();
         d.sanitize();
         d.log[0].task = Some(1);
@@ -297,7 +314,36 @@ mod tests {
         let s = serde_json::to_string(&d).unwrap();
         let back: Data = serde_json::from_str(&s).unwrap();
         assert_eq!(back.log[0].task, Some(1));
-        assert_eq!(back.version, 3);
+        assert_eq!(back.version, 4);
+    }
+
+    #[test]
+    fn migrates_to_v4_with_archive_fields_defaulted() {
+        let mut d: Data = serde_json::from_str(v2_json()).expect("v2 json parses");
+        d.sanitize();
+
+        assert_eq!(d.version, 4);
+        assert_eq!(d.tasks.len(), 1);
+        assert!(!d.tasks[0].relink, "nothing is pending a re-link");
+    }
+
+    #[test]
+    fn archived_and_relink_roundtrip_through_json() {
+        let mut d: Data = serde_json::from_str(v2_json()).unwrap();
+        d.sanitize();
+        d.projects.push(Project {
+            id: 9,
+            name: "Statistics".into(),
+            color: 0,
+            archived: true,
+        });
+        d.tasks[0].relink = true;
+
+        let s = serde_json::to_string(&d).unwrap();
+        let back: Data = serde_json::from_str(&s).unwrap();
+        assert!(back.projects[0].archived);
+        assert!(back.tasks[0].relink);
+        assert_eq!(back.version, 4);
     }
 
     #[test]
