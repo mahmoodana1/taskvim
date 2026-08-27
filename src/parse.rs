@@ -24,6 +24,44 @@ fn match_section(name: &str) -> Option<DashSection> {
         .find(|s| s.title().to_lowercase().starts_with(&n))
 }
 
+/// Try to strip a trailing `!due` token from `text`. Returns the parsed due
+/// date if one was found and consumed.
+fn strip_due(text: &mut String) -> Option<Option<String>> {
+    let tok = text.split_whitespace().last()?;
+    let spec = tok.strip_prefix('!')?;
+    let d = parse_due(spec).ok()?;
+    let cut = text.rfind('!').unwrap();
+    *text = text[..cut].trim().to_string();
+    Some(d)
+}
+
+/// Try to strip a trailing `#section` token from `text`. Returns the matched
+/// section if one was found and consumed.
+fn strip_section(text: &mut String) -> Option<DashSection> {
+    let tok = text.split_whitespace().last()?;
+    let name = tok.strip_prefix('#')?;
+    let s = match_section(name)?;
+    let cut = text.rfind('#').unwrap();
+    *text = text[..cut].trim().to_string();
+    Some(s)
+}
+
+/// Try to strip a trailing `@course` token from `text`. Returns the matched
+/// project id if one was found and consumed.
+fn strip_project(text: &mut String, projects: &[Project]) -> Option<u64> {
+    let pos = text.rfind('@')?;
+    let name = text[pos + 1..].trim().to_lowercase();
+    if name.is_empty() || pos == 0 {
+        return None;
+    }
+    let p = projects
+        .iter()
+        .find(|p| p.name.to_lowercase().starts_with(&name))?;
+    let id = p.id;
+    *text = text[..pos].trim().to_string();
+    Some(id)
+}
+
 /// Strip trailing `!due`, `@course` and `#section` tokens in any order.
 /// A token that doesn't resolve — an unknown course, an unparseable date, a
 /// `#4` that isn't a section — is left in the text as literal content.
@@ -33,50 +71,41 @@ pub fn parse_task_input(projects: &[Project], buf: &str) -> ParsedTask {
     let mut due = None;
     let mut section = None;
 
-    // One pass per possible token, plus one to settle.
-    for _ in 0..4 {
-        let before = text.clone();
+    // Keep stripping trailing tokens as long as some attempt makes progress.
+    // Adding a fourth token type is just another `if` in this block — no
+    // iteration bound to keep in sync with the number of token kinds.
+    loop {
+        let len_before = text.len();
+        let mut progressed = false;
 
         if due.is_none() {
-            if let Some(tok) = text.split_whitespace().last() {
-                if let Some(spec) = tok.strip_prefix('!') {
-                    if let Ok(d) = parse_due(spec) {
-                        due = d;
-                        let cut = text.rfind('!').unwrap();
-                        text = text[..cut].trim().to_string();
-                    }
-                }
+            if let Some(d) = strip_due(&mut text) {
+                due = d;
+                progressed = true;
             }
         }
 
         if section.is_none() {
-            if let Some(tok) = text.split_whitespace().last() {
-                if let Some(name) = tok.strip_prefix('#') {
-                    if let Some(s) = match_section(name) {
-                        section = Some(s);
-                        let cut = text.rfind('#').unwrap();
-                        text = text[..cut].trim().to_string();
-                    }
-                }
+            if let Some(s) = strip_section(&mut text) {
+                section = Some(s);
+                progressed = true;
             }
         }
 
         if project.is_none() {
-            if let Some(pos) = text.rfind('@') {
-                let name = text[pos + 1..].trim().to_lowercase();
-                if !name.is_empty() && pos > 0 {
-                    if let Some(p) = projects
-                        .iter()
-                        .find(|p| p.name.to_lowercase().starts_with(&name))
-                    {
-                        project = Some(p.id);
-                        text = text[..pos].trim().to_string();
-                    }
-                }
+            if let Some(p) = strip_project(&mut text, projects) {
+                project = Some(p);
+                progressed = true;
             }
         }
 
-        if text == before {
+        if !progressed {
+            break;
+        }
+        // A strip that reports progress must always shorten `text` — guard
+        // against an infinite loop if that invariant is ever broken.
+        debug_assert!(text.len() < len_before);
+        if text.len() >= len_before {
             break;
         }
     }
@@ -135,6 +164,19 @@ mod tests {
         assert_eq!(b.project, Some(7));
         assert_eq!(b.due, Some("2026-09-01".to_string()));
         assert_eq!(b.section, Some(DashSection::Important));
+    }
+
+    #[test]
+    fn a_token_resolves_even_when_it_isnt_trailing_until_a_later_pass() {
+        // The section token isn't trailing until the due and project tokens
+        // after it are stripped first — this only resolves across multiple
+        // passes, unlike the orderings in `tokens_combine_in_any_order` where
+        // each token is already last on the pass that finds it.
+        let p = parse_task_input(&projects(), "fix undo bug #important @algo !2026-09-01");
+        assert_eq!(p.text, "fix undo bug");
+        assert_eq!(p.project, Some(7));
+        assert_eq!(p.due, Some("2026-09-01".to_string()));
+        assert_eq!(p.section, Some(DashSection::Important));
     }
 
     #[test]
