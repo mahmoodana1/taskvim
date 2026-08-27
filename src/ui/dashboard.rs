@@ -106,13 +106,60 @@ pub fn task_spans(app: &App, t: &Task) -> (Vec<Span<'static>>, Option<Span<'stat
     (spans, badge)
 }
 
+/// Truncate a span to at most `max` display columns, appending `…` if cut.
+/// Measures width per character while building, so a wide glyph can never push
+/// the result past `max` — truncating by char count and measuring afterwards
+/// silently overshoots and misaligns the box.
+fn fit_span(s: Span<'static>, max: usize) -> Span<'static> {
+    if s.width() <= max {
+        return s;
+    }
+    if max == 0 {
+        return Span::styled(String::new(), s.style);
+    }
+    let budget = max - 1; // `…` is one column wide
+    let mut out = String::new();
+    let mut w = 0usize;
+    for ch in s.content.chars() {
+        let cw = Span::raw(ch.to_string()).width();
+        if w + cw > budget {
+            break;
+        }
+        w += cw;
+        out.push(ch);
+    }
+    out.push('…');
+    Span::styled(out, s.style)
+}
+
 /// `┌ IMPORTANT ─────────── 2 ┐`
+///
+/// Always renders exactly `width` columns: the title yields to the count, and
+/// the count yields to the corners, so a narrow column truncates rather than
+/// overflowing past the panel edge.
 fn box_top(sec: DashSection, count: usize, width: usize, color: Color) -> ListItem<'static> {
-    let title = format!(" {} ", sec.title().to_uppercase());
-    let tail = format!(" {} ", count);
-    let rule = width
-        .saturating_sub(2 + title.chars().count() + tail.chars().count())
-        .max(1);
+    if width < 2 {
+        return ListItem::new(Line::from(Span::styled(
+            "─".repeat(width),
+            Style::default().fg(color),
+        )));
+    }
+    let inner = width - 2; // between the two corners
+
+    let tail_full = format!(" {} ", count);
+    let tail: String = tail_full.chars().take(inner).collect();
+    let tail_w = tail.chars().count();
+
+    // Leave one rule character between title and count when there's room.
+    let title_room = inner.saturating_sub(tail_w + 1);
+    let title_full = format!(" {} ", sec.title().to_uppercase());
+    let title: String = if title_full.chars().count() <= title_room {
+        title_full
+    } else {
+        title_full.chars().take(title_room).collect()
+    };
+    let rule = inner.saturating_sub(title.chars().count() + tail_w);
+
     ListItem::new(Line::from(vec![
         Span::styled(
             format!("┌{}", title),
@@ -146,11 +193,25 @@ fn box_fill(width: usize, color: Color) -> ListItem<'static> {
 /// Unicode display width, never byte or char counts, because the badges carry
 /// wide glyphs (`⚠`, `↻`).
 fn box_task(app: &App, t: &Task, width: usize, color: Color) -> ListItem<'static> {
+    /// Columns the title keeps even when the course tag would rather have them.
+    const MIN_TITLE: usize = 10;
+
     let inner = width.saturating_sub(2);
-    let (content, badge) = task_spans(app, t);
+    let (mut content, badge) = task_spans(app, t);
+    // Drop the badge outright rather than truncate it when the column is too
+    // narrow to hold both — a task's name matters more than its date, and a
+    // half-rendered "⚠ was due Aug…" is worse than none.
+    let badge = badge.filter(|b| b.width() + MIN_TITLE + 2 <= inner);
     let badge_w = badge.as_ref().map(|b| b.width()).unwrap_or(0);
-    // 1 leading space + content + gap + badge + 1 trailing space
+    // 1 leading space + content + pad + badge + 1 trailing space
     let avail = inner.saturating_sub(badge_w + 2);
+
+    // The title is always the last span. Budget it first, so a long
+    // "[Course - Section]" tag can never squeeze the title off the row.
+    let title = content.pop().unwrap_or_else(|| Span::raw(""));
+    let tag_w: usize = content.iter().map(|s| s.width()).sum();
+    let title_budget = avail.saturating_sub(tag_w).max(MIN_TITLE.min(avail));
+    let tag_budget = avail.saturating_sub(title_budget);
 
     let mut line: Vec<Span<'static>> = vec![
         Span::styled("│", Style::default().fg(color)),
@@ -158,24 +219,18 @@ fn box_task(app: &App, t: &Task, width: usize, color: Color) -> ListItem<'static
     ];
     let mut used = 0usize;
     for s in content {
-        let w = s.width();
-        if used + w <= avail {
-            used += w;
-            line.push(s);
-        } else {
-            let room = avail.saturating_sub(used);
-            if room > 1 {
-                let cut: String = s.content.chars().take(room - 1).collect();
-                let cut_w = Span::raw(cut.clone()).width();
-                used += cut_w + 1;
-                line.push(Span::styled(format!("{}…", cut), s.style));
-            }
-            break;
+        let fitted = fit_span(s, tag_budget.saturating_sub(used));
+        used += fitted.width();
+        if fitted.width() > 0 {
+            line.push(fitted);
         }
     }
+    let fitted_title = fit_span(title, avail.saturating_sub(used));
+    used += fitted_title.width();
+    line.push(fitted_title);
 
-    // The run between the two bars must be exactly `inner` wide:
-    //   1 leading space + used + pad + badge_w + 1 trailing space
+    // `used <= avail` by construction, so this padding is always exact and the
+    // closing bar always lands in the same column.
     line.push(Span::raw(" ".repeat(inner.saturating_sub(used + badge_w + 2))));
     if let Some(b) = badge {
         line.push(b);
