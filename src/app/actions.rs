@@ -157,6 +157,9 @@ impl App {
             self.status = String::from("removed from main dashboard");
         } else {
             self.data.dashboard.push(tid);
+            if let Some(t) = self.data.tasks.iter_mut().find(|t| t.id == tid) {
+                t.dash_section = DashSection::General;
+            }
             self.status = String::from("linked to main dashboard ↗");
         }
         self.clamp();
@@ -167,7 +170,10 @@ impl App {
         let was_linked = self.data.dashboard.iter().any(|id| *id == tid);
         self.data.dashboard.retain(|id| *id != tid);
         self.data.dashboard.insert(0, tid);
-        self.task_sel = 0;
+        if let Some(t) = self.data.tasks.iter_mut().find(|t| t.id == tid) {
+            t.dash_section = DashSection::Important;
+        }
+        self.task_sel = 1; // row 0 is the Important header
         self.status = if was_linked {
             String::from("moved to top → current priority")
         } else {
@@ -231,7 +237,10 @@ impl App {
         let tid = pool[rand::thread_rng().gen_range(0..pool.len())];
         self.data.dashboard.retain(|id| *id != tid);
         self.data.dashboard.insert(0, tid);
-        self.task_sel = 0;
+        if let Some(t) = self.data.tasks.iter_mut().find(|t| t.id == tid) {
+            t.dash_section = DashSection::Important;
+        }
+        self.task_sel = 1; // row 0 is the Important header
         self.pane = Pane::Tasks;
         self.status = String::from("random task pulled from the backlog → current priority");
         self.save_quiet();

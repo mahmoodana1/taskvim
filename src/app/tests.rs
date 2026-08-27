@@ -209,3 +209,30 @@ fn moving_a_task_up_swaps_with_its_section_sibling() {
     assert_eq!(app.dash_rows()[3], DashRow::Task(1));
     assert_eq!(app.task_sel, 2, "cursor follows the moved task");
 }
+
+#[test]
+fn make_priority_moves_the_task_to_the_top_of_important() {
+    let mut app = test_app(vec![
+        sectioned(1, "a", DashSection::Important),
+        sectioned(2, "b", DashSection::Agent),
+    ]);
+
+    app.make_priority(2);
+
+    assert_eq!(app.data.tasks[1].dash_section, DashSection::Important);
+    assert_eq!(app.dash_rows()[1], DashRow::Task(2), "top of Important");
+}
+
+#[test]
+fn pinning_a_course_task_lands_it_in_general() {
+    let mut app = test_app(vec![]);
+    let mut t = task(9, "lecture 7");
+    t.dash_section = DashSection::Agent; // stale value from an earlier stint
+    app.data.tasks.push(t);
+    app.data.dashboard.clear();
+
+    app.toggle_pin(9);
+
+    assert_eq!(app.data.tasks[0].dash_section, DashSection::General);
+    assert!(app.data.dashboard.contains(&9));
+}
