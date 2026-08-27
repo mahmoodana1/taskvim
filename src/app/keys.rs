@@ -377,11 +377,7 @@ impl App {
 
             // list movement
             KeyCode::Char('j') | KeyCode::Down => match self.pane {
-                Pane::Tasks => {
-                    if self.task_sel + 1 < self.dash_rows().len() {
-                        self.task_sel += 1;
-                    }
-                }
+                Pane::Tasks => self.step_dash_cursor(1),
                 Pane::Courses => {
                     if self.course_sel + 1 < self.data.projects.len() {
                         self.course_sel += 1;
@@ -389,7 +385,7 @@ impl App {
                 }
             },
             KeyCode::Char('k') | KeyCode::Up => match self.pane {
-                Pane::Tasks => self.task_sel = self.task_sel.saturating_sub(1),
+                Pane::Tasks => self.step_dash_cursor(-1),
                 Pane::Courses => self.course_sel = self.course_sel.saturating_sub(1),
             },
             KeyCode::Char('g') => {
@@ -403,7 +399,7 @@ impl App {
                 }
             }
             KeyCode::Char('G') => match self.pane {
-                Pane::Tasks => self.task_sel = self.dash_rows().len().saturating_sub(1),
+                Pane::Tasks => self.task_sel = self.last_dash_row(),
                 Pane::Courses => self.course_sel = self.data.projects.len().saturating_sub(1),
             },
 

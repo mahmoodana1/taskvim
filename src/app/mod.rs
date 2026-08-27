@@ -58,7 +58,6 @@ impl DashRow {
     /// Can the cursor land here? Box chrome cannot.
     ///
     /// Unused until Task 2 wires navigation to skip chrome rows.
-    #[allow(dead_code)]
     pub fn is_selectable(&self) -> bool {
         matches!(self, DashRow::SectionTop(_) | DashRow::Task(_))
     }
@@ -441,10 +440,44 @@ impl App {
 
     // -------------------------------------------------------- bounds clamping
 
+    /// Move the dashboard cursor by `delta` rows, skipping box chrome. Stays
+    /// put when there is no selectable row in that direction.
+    pub fn step_dash_cursor(&mut self, delta: isize) {
+        let rows = self.dash_rows();
+        if rows.is_empty() {
+            return;
+        }
+        let mut i = self.task_sel as isize;
+        loop {
+            i += delta;
+            if i < 0 || i as usize >= rows.len() {
+                return; // ran off the end — leave the cursor where it was
+            }
+            if rows[i as usize].is_selectable() {
+                self.task_sel = i as usize;
+                return;
+            }
+        }
+    }
+
+    /// Index of the last selectable row, for `G`.
+    pub fn last_dash_row(&self) -> usize {
+        let rows = self.dash_rows();
+        rows.iter().rposition(|r| r.is_selectable()).unwrap_or(0)
+    }
+
     pub fn clamp(&mut self) {
-        let visible = self.dash_rows().len();
-        if self.task_sel >= visible {
-            self.task_sel = visible.saturating_sub(1);
+        let rows = self.dash_rows();
+        if self.task_sel >= rows.len() {
+            // The last row is always a box bottom, so settle onto the last row
+            // the cursor is actually allowed to occupy.
+            self.task_sel = self.last_dash_row();
+        } else if !rows[self.task_sel].is_selectable() {
+            // A delete or a section move can leave the cursor on chrome.
+            self.task_sel = rows[..self.task_sel]
+                .iter()
+                .rposition(|r| r.is_selectable())
+                .unwrap_or(0);
         }
         if self.course_sel >= self.data.projects.len() {
             self.course_sel = self.data.projects.len().saturating_sub(1);

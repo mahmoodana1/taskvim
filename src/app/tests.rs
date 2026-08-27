@@ -440,3 +440,75 @@ fn setting_a_repeat_clears_an_existing_due_date() {
     assert!(app.data.tasks[0].repeat.is_some());
     assert!(app.data.tasks[0].period.is_some(), "stamped immediately");
 }
+
+// ---------------------------------------------------------------- navigation
+
+use crossterm::event::{KeyCode, KeyModifiers};
+
+#[test]
+fn moving_down_skips_box_chrome() {
+    let mut app = test_app(vec![
+        sectioned(1, "a", DashSection::Important),
+        sectioned(2, "b", DashSection::General),
+    ]);
+    // rows: 0 top(Imp) 1 task1 2 bot(Imp) 3 top(Gen) 4 task2 5 bot(Gen)
+    //       6 top(Agt) 7 fill(Agt) 8 bot(Agt)
+    app.task_sel = 1; // on task 1
+
+    app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+
+    assert_eq!(app.task_sel, 3, "skipped the Important box bottom");
+    assert_eq!(app.selected_section(), DashSection::General);
+}
+
+#[test]
+fn moving_up_skips_box_chrome() {
+    let mut app = test_app(vec![
+        sectioned(1, "a", DashSection::Important),
+        sectioned(2, "b", DashSection::General),
+    ]);
+    app.task_sel = 4; // task 2, under General
+
+    app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
+
+    assert_eq!(app.task_sel, 3, "General's header, not its top border chrome");
+}
+
+#[test]
+fn moving_never_lands_on_a_non_selectable_row() {
+    let mut app = test_app(vec![sectioned(1, "a", DashSection::General)]);
+
+    for _ in 0..12 {
+        app.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+        let row = app.dash_rows()[app.task_sel];
+        assert!(row.is_selectable(), "landed on {:?}", row);
+    }
+    for _ in 0..12 {
+        app.handle_key(KeyCode::Char('k'), KeyModifiers::NONE);
+        let row = app.dash_rows()[app.task_sel];
+        assert!(row.is_selectable(), "landed on {:?}", row);
+    }
+}
+
+#[test]
+fn g_jumps_to_the_last_selectable_row() {
+    let mut app = test_app(vec![sectioned(1, "a", DashSection::Agent)]);
+
+    app.handle_key(KeyCode::Char('G'), KeyModifiers::NONE);
+
+    let row = app.dash_rows()[app.task_sel];
+    assert_eq!(row, DashRow::Task(1), "G lands on the task, not the box bottom");
+}
+
+#[test]
+fn clamp_never_parks_the_cursor_on_chrome() {
+    let mut app = test_app(vec![sectioned(1, "a", DashSection::General)]);
+    // Past the end — clamp used to settle on the very last row, which is
+    // always a box bottom.
+    app.task_sel = 99;
+
+    app.clamp();
+
+    let row = app.dash_rows()[app.task_sel];
+    assert!(row.is_selectable(), "clamped onto {:?}", row);
+}
