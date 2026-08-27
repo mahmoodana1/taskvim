@@ -121,6 +121,126 @@ pub fn draw_daily_goal(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(gauge, rows[1]);
 }
 
+/// A seven-column bar chart of the current week, Monday to Sunday, drawn as
+/// three stacked rows of block glyphs plus a label row and a totals line.
+/// Scaled against whichever is larger — the week's best day or the daily goal —
+/// so a good day never overflows the chart and the goal stays a visible bar to
+/// clear.
+pub fn draw_week(f: &mut Frame, app: &App, area: Rect) {
+    const ROWS: u32 = 3;
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(DIM))
+        .title(Span::styled(
+            " THIS WEEK ",
+            Style::default().add_modifier(Modifier::BOLD),
+        ))
+        .padding(Padding::horizontal(1));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let today = Local::now().date_naive();
+    let monday = today - CDuration::days(today.weekday().num_days_from_monday() as i64);
+    let counts = app.counts_by_date();
+    let goal = app.data.daily_goal.max(1);
+
+    let week: Vec<(NaiveDate, u32)> = (0..7)
+        .map(|i| {
+            let d = monday + CDuration::days(i);
+            (d, counts.get(&d).copied().unwrap_or(0))
+        })
+        .collect();
+
+    let peak = week.iter().map(|(_, c)| *c).max().unwrap_or(0).max(goal);
+    // Spread the seven days across the panel so the chart fills its width
+    // instead of huddling on the left. Columns stay equal so bars and labels
+    // remain in step.
+    let col = ((inner.width as usize).saturating_sub(2) / 7).clamp(5, 20);
+    let bar_w = col.saturating_sub(2).max(1);
+    let bar = "█".repeat(bar_w);
+    let gap = " ".repeat(bar_w);
+
+    let bar_style = |c: u32| {
+        if c >= goal {
+            Style::default().fg(Color::LightGreen)
+        } else if c > 0 {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default().fg(DIM)
+        }
+    };
+
+    let mut lines: Vec<Line> = Vec::new();
+    for row in 0..ROWS {
+        // Row 0 is the top of the chart.
+        let threshold = ROWS - row;
+        let mut spans = vec![Span::raw("  ")];
+        for (_, c) in &week {
+            let filled = (*c * ROWS).div_ceil(peak.max(1));
+            let glyph = if filled >= threshold { &bar } else { &gap };
+            spans.push(Span::styled(
+                format!("{:^width$}", glyph, width = col),
+                bar_style(*c),
+            ));
+        }
+        lines.push(Line::from(spans));
+    }
+
+    let mut labels = vec![Span::raw("  ")];
+    for (d, c) in &week {
+        let name = d.format("%a").to_string();
+        let style = if *d == today {
+            Style::default()
+                .fg(Color::LightCyan)
+                .add_modifier(Modifier::BOLD)
+        } else if *c > 0 {
+            Style::default()
+        } else {
+            Style::default().fg(DIM)
+        };
+        labels.push(Span::styled(
+            format!("{:^width$}", name, width = col),
+            style,
+        ));
+    }
+    lines.push(Line::from(labels));
+
+    let done: u32 = week.iter().map(|(_, c)| *c).sum();
+    let elapsed = (today - monday).num_days() as u32 + 1;
+    let best = week.iter().max_by_key(|(_, c)| *c);
+    let mut summary = vec![
+        Span::styled(
+            format!("  {} done", done),
+            Style::default().add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("  ·  {:.1}/day", done as f64 / elapsed as f64),
+            Style::default().fg(DIM),
+        ),
+    ];
+    if let Some((d, c)) = best {
+        if *c > 0 {
+            summary.push(Span::styled(
+                format!("  ·  best {} ({})", d.format("%a"), c),
+                Style::default().fg(DIM),
+            ));
+        }
+    }
+    let hit = week.iter().filter(|(_, c)| *c >= goal).count();
+    summary.push(Span::styled(
+        format!("  ·  goal hit {}/{}", hit, elapsed.min(7)),
+        Style::default().fg(if hit as u32 >= elapsed {
+            Color::LightGreen
+        } else {
+            DIM
+        }),
+    ));
+    lines.push(Line::from(summary));
+
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
 fn heat_cell(count: u32, is_today: bool, month: u32, is_month_start: bool) -> Span<'static> {
     // Alternate empty-cell tone by month to produce GitHub-style banding.
     let dim_a = Color::Rgb(48, 50, 64);

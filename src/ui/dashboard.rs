@@ -11,17 +11,19 @@ use ratatui::Frame;
 use crate::app::{App, DashRow, Pane, View};
 use crate::model::{DashSection, Task};
 use crate::ui::courses::draw_courses;
-use crate::ui::heatmap::{draw_daily_goal, draw_heatmap, draw_priority};
+use crate::ui::heatmap::{draw_daily_goal, draw_heatmap, draw_priority, draw_week};
 use crate::ui::theme::{
     due_span, ellipsize, fit_span, palette, repeat_span, section_color, ACCENT, DIM, SEL_BG,
 };
 
 pub fn draw_dashboard(f: &mut Frame, app: &App, area: Rect) {
-    // Task-forward: the working set is the point of the app, so it gets the
-    // larger share. The right column is a stats rail, sized to its content so
-    // no panel renders a field of blank rows.
-    let cols =
-        Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)]).split(area);
+    // Even split: the task column and the stats rail get half the width each.
+    // A full-width band across the bottom anchors the layout and fills what
+    // was dead space under both columns.
+    let outer = Layout::vertical([Constraint::Min(10), Constraint::Length(7)]).split(area);
+
+    let cols = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(outer[0]);
     draw_task_sidebar(f, app, cols[0]);
 
     // Every panel is sized to its content and the slack falls off the bottom,
@@ -43,6 +45,8 @@ pub fn draw_dashboard(f: &mut Frame, app: &App, area: Rect) {
     draw_daily_goal(f, app, rail[2]);
     draw_heatmap(f, app, rail[3]);
     draw_courses(f, app, rail[4]);
+
+    draw_week(f, app, outer[1]);
 }
 
 pub fn draw_greeting(f: &mut Frame, area: Rect) {
