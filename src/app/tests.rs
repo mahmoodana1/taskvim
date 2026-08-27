@@ -325,3 +325,17 @@ fn adding_a_task_with_only_tokens_reports_an_error() {
         app.status
     );
 }
+
+#[test]
+fn unlinking_a_task_leaves_its_section_alone() {
+    let mut app = test_app(vec![sectioned(1, "lecture 7", DashSection::Important)]);
+
+    app.toggle_pin(1); // already on the dashboard, so this unlinks
+
+    assert!(!app.data.dashboard.contains(&1), "unlinked");
+    assert_eq!(
+        app.data.tasks[0].dash_section,
+        DashSection::Important,
+        "section survives an unlink, so re-linking doesn't lose it"
+    );
+}

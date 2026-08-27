@@ -69,7 +69,7 @@ pub struct App {
     pub pane: Pane,
     pub view: View,
     pub mode: Mode,
-    pub task_sel: usize,   // index into data.dashboard
+    pub task_sel: usize,   // index into dash_rows()
     pub course_sel: usize, // index into data.projects
     pub cur_course: Option<u64>,
     pub course_row: usize, // cursor inside the course modal
