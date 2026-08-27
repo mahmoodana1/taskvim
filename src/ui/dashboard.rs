@@ -1,11 +1,10 @@
 //! The dashboard view: task sidebar, greeting banner, and the task-row
 //! rendering used by the sidebar's list.
 
-use chrono::{Local, Timelike};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Padding, Paragraph};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
 use crate::app::{App, DashRow, Pane, View};
@@ -18,7 +17,6 @@ use crate::ui::theme::{
 
 pub fn draw_dashboard(f: &mut Frame, app: &App, area: Rect) {
     // Panel heights, in rows. Each is content + 2 border rows.
-    const GREETING: u16 = 3;
     const NOW: u16 = 3;
     const GOAL: u16 = 4;
     const HEATMAP: u16 = 11; // month row + 7 days + totals + borders
@@ -34,7 +32,7 @@ pub fn draw_dashboard(f: &mut Frame, app: &App, area: Rect) {
     const HEATMAP_MIN: u16 = 10;
 
     let week_h = if area.height >= 22 { WEEK } else { 0 };
-    let fixed = GREETING + NOW + GOAL + courses_h;
+    let fixed = NOW + GOAL + courses_h;
     let room = area.height.saturating_sub(week_h).saturating_sub(fixed);
     let heat_h = if room >= HEATMAP_MIN {
         room.min(HEATMAP)
@@ -72,7 +70,6 @@ pub fn draw_dashboard(f: &mut Frame, app: &App, area: Rect) {
     draw_task_sidebar(f, app, sidebar[0]);
 
     let rail = Layout::vertical([
-        Constraint::Length(GREETING),
         Constraint::Length(NOW),
         Constraint::Length(GOAL),
         Constraint::Length(heat_h),
@@ -81,38 +78,16 @@ pub fn draw_dashboard(f: &mut Frame, app: &App, area: Rect) {
     ])
     .split(cols[1]);
 
-    draw_greeting(f, rail[0]);
-    draw_priority(f, app, rail[1]);
-    draw_daily_goal(f, app, rail[2]);
+    draw_priority(f, app, rail[0]);
+    draw_daily_goal(f, app, rail[1]);
     if heat_h > 0 {
-        draw_heatmap(f, app, rail[3]);
+        draw_heatmap(f, app, rail[2]);
     }
-    draw_courses(f, app, rail[4]);
+    draw_courses(f, app, rail[3]);
 
     if week_h > 0 {
         draw_week(f, app, outer[1]);
     }
-}
-
-pub fn draw_greeting(f: &mut Frame, area: Rect) {
-    let now = Local::now();
-    let greeting = match now.hour() {
-        5..=11 => "Good Morning",
-        12..=17 => "Good Afternoon",
-        _ => "Good Evening",
-    };
-    let date = now.format("%A, %B %d").to_string().to_uppercase();
-    let text = vec![
-        Line::from(Span::styled(date, Style::default().fg(DIM))),
-        Line::from(Span::styled(
-            greeting,
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-    ];
-    f.render_widget(
-        Paragraph::new(text).block(Block::default().padding(Padding::horizontal(1))),
-        area,
-    );
 }
 
 /// The content spans for one dashboard task: project tag, title, and the
