@@ -19,10 +19,11 @@ pub enum Pane {
     Courses,
 }
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Debug)]
 pub enum View {
     Dashboard,
-    Course, // modal over the dashboard; cur_course holds the project id
+    Course,   // modal over the dashboard; cur_course holds the project id
+    Archived, // modal over the dashboard listing archived courses
     Log,
     DayLog, // view for a specific day's contributions
     Help,
@@ -93,7 +94,8 @@ pub struct App {
     pub task_sel: usize,   // index into dash_rows()
     pub course_sel: usize, // index into visible_courses(), NOT data.projects
     pub cur_course: Option<u64>,
-    pub course_row: usize, // cursor inside the course modal
+    pub course_row: usize,   // cursor inside the course modal
+    pub archived_sel: usize, // cursor inside the archive modal
     pub log_sel: usize,
     pub day_sel: usize,                // selected day in day log view
     pub selected_date: Option<String>, // YYYY-MM-DD format for day view
@@ -133,6 +135,7 @@ impl App {
             course_sel: 0,
             cur_course: None,
             course_row: 0,
+            archived_sel: 0,
             log_sel: 0,
             day_sel: 0,
             selected_date: None,
@@ -392,9 +395,6 @@ impl App {
     }
 
     /// The archived courses, in order.
-    ///
-    /// Unused until the archive modal lands.
-    #[allow(dead_code)]
     pub fn archived_courses(&self) -> Vec<&Project> {
         self.data.projects.iter().filter(|p| p.archived).collect()
     }

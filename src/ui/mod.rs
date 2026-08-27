@@ -13,7 +13,7 @@ use ratatui::layout::{Constraint, Layout};
 use ratatui::Frame;
 
 use crate::app::{App, Mode, View};
-use crate::ui::courses::draw_course_modal;
+use crate::ui::courses::{draw_archived_modal, draw_course_modal};
 use crate::ui::dashboard::draw_dashboard;
 use crate::ui::help::draw_help;
 use crate::ui::log::{draw_daylog, draw_log};
@@ -32,6 +32,10 @@ pub fn ui(f: &mut Frame, app: &App) {
         View::Course => {
             draw_dashboard(f, app, body);
             draw_course_modal(f, app, body);
+        }
+        View::Archived => {
+            draw_dashboard(f, app, body);
+            draw_archived_modal(f, app, body);
         }
     }
 

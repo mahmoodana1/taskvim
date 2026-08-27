@@ -68,6 +68,7 @@ impl App {
                     View::Log => self.handle_log(code, pend),
                     View::DayLog => self.handle_daylog(code, pend),
                     View::Course => self.handle_course(code, pend),
+                    View::Archived => self.handle_archived(code, pend),
                     View::Dashboard => self.handle_dashboard(code, pend),
                 }
             }
@@ -134,6 +135,53 @@ impl App {
             _ => return,
         }
         self.mode = Mode::Normal;
+    }
+
+    fn handle_archived(&mut self, code: KeyCode, pend: Option<char>) {
+        let n = self.archived_courses().len();
+        let selected = self.archived_courses().get(self.archived_sel).map(|p| p.id);
+        match code {
+            KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char('X') => {
+                self.view = View::Dashboard;
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                if self.archived_sel + 1 < n {
+                    self.archived_sel += 1;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.archived_sel = self.archived_sel.saturating_sub(1)
+            }
+            KeyCode::Char('g') => {
+                if pend == Some('g') {
+                    self.archived_sel = 0;
+                } else {
+                    self.pending = Some('g');
+                }
+            }
+            KeyCode::Char('G') => self.archived_sel = n.saturating_sub(1),
+            KeyCode::Char('x') => {
+                if let Some(pid) = selected {
+                    self.unarchive_course(pid);
+                    let left = self.archived_courses().len();
+                    if left == 0 {
+                        self.view = View::Dashboard;
+                    } else {
+                        self.archived_sel = self.archived_sel.min(left - 1);
+                    }
+                }
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                if let Some(pid) = selected {
+                    // Readable without restoring: archiving never makes a
+                    // course's tasks unreachable.
+                    self.open_course(pid);
+                }
+            }
+            KeyCode::Char('?') => self.view = View::Help,
+            KeyCode::Char(':') => self.mode = Mode::Command(String::new()),
+            _ => {}
+        }
     }
 
     fn handle_log(&mut self, code: KeyCode, pend: Option<char>) {
@@ -566,6 +614,17 @@ impl App {
             }
 
             // misc
+            KeyCode::Char('x') => {
+                if self.pane == Pane::Courses {
+                    if let Some(pid) = self.selected_course() {
+                        self.archive_course(pid);
+                    }
+                }
+            }
+            KeyCode::Char('X') => {
+                self.archived_sel = 0;
+                self.view = View::Archived;
+            }
             KeyCode::Char('r') => self.pick_random(),
             KeyCode::Char('+') | KeyCode::Char('=') => {
                 self.data.daily_goal += 1;
@@ -607,6 +666,10 @@ impl App {
                 self.view = View::Log;
             }
             "db" | "dashboard" => self.view = View::Dashboard,
+            "archived" | "archive" => {
+                self.archived_sel = 0;
+                self.view = View::Archived;
+            }
             "help" | "h" => self.view = View::Help,
             "goal" => match arg.parse::<u32>() {
                 Ok(n) if n >= 1 => {

@@ -43,6 +43,7 @@ pub fn draw_statusbar(f: &mut Frame, app: &App, area: Rect) {
             };
             let mode_tag = match app.view {
                 View::Course => " COURSE ",
+                View::Archived => " ARCHIVE ",
                 View::Log => " LOG ",
                 View::DayLog => " DAY LOG ",
                 View::Help => " HELP ",

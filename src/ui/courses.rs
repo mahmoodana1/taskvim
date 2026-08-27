@@ -256,3 +256,70 @@ pub fn draw_course_modal(f: &mut Frame, app: &App, area: Rect) {
     state.select(Some(app.course_row.min(rows.len().saturating_sub(1))));
     f.render_stateful_widget(list, popup, &mut state);
 }
+
+/// The archive: a modal listing archived courses, opened with `X`.
+pub fn draw_archived_modal(f: &mut Frame, app: &App, area: Rect) {
+    let courses = app.archived_courses();
+
+    let w = area.width.saturating_sub(8).min(70).max(36);
+    // 3 = border + one row + border, which also fits the empty-state message.
+    let h = (courses.len() as u16 + 2).clamp(3, area.height.saturating_sub(4).max(3));
+    let popup = Rect {
+        x: area.x + (area.width.saturating_sub(w)) / 2,
+        y: area.y + (area.height.saturating_sub(h)) / 2,
+        width: w,
+        height: h,
+    };
+    f.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(DIM))
+        .title(Span::styled(
+            format!(
+                " ARCHIVED — {} course{} ",
+                courses.len(),
+                if courses.len() == 1 { "" } else { "s" }
+            ),
+            Style::default().add_modifier(Modifier::BOLD),
+        ))
+        .title_bottom(Line::from(Span::styled(
+            " x:restore  ⏎:open  q:close ",
+            Style::default().fg(DIM),
+        )));
+
+    if courses.is_empty() {
+        f.render_widget(
+            Paragraph::new(" nothing archived — press x on a course to archive it")
+                .style(Style::default().fg(DIM))
+                .block(block),
+            popup,
+        );
+        return;
+    }
+
+    let items: Vec<ListItem> = courses
+        .iter()
+        .map(|p| {
+            let (done, total) = app.project_stats(p.id);
+            ListItem::new(Line::from(vec![
+                Span::styled("  ○ ", Style::default().fg(DIM)),
+                Span::styled(
+                    p.name.clone(),
+                    Style::default().add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("   {}/{} done", done, total),
+                    Style::default().fg(DIM),
+                ),
+            ]))
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(block)
+        .highlight_style(Style::default().bg(SEL_BG).add_modifier(Modifier::BOLD));
+    let mut state = ListState::default();
+    state.select(Some(app.archived_sel.min(courses.len().saturating_sub(1))));
+    f.render_stateful_widget(list, popup, &mut state);
+}

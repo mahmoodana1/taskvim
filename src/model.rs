@@ -298,7 +298,10 @@ mod tests {
         let mut d: Data = serde_json::from_str(v2_json()).expect("v2 json parses");
         d.sanitize();
 
-        assert_eq!(d.version, 4, "migration runs all the way to the current version");
+        assert_eq!(
+            d.version, 4,
+            "migration runs all the way to the current version"
+        );
         assert_eq!(d.tasks.len(), 1);
         assert_eq!(d.log.len(), 1);
         assert_eq!(d.dashboard, vec![1]);

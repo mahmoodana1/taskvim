@@ -650,7 +650,11 @@ fn archiving_unlinks_and_flags_only_that_courses_tasks() {
     app.archive_course(1);
 
     assert!(app.data.projects[0].archived);
-    assert_eq!(app.data.dashboard, vec![12], "only the other course's task left");
+    assert_eq!(
+        app.data.dashboard,
+        vec![12],
+        "only the other course's task left"
+    );
     assert!(app.data.tasks[0].relink);
     assert!(app.data.tasks[1].relink);
     assert!(!app.data.tasks[2].relink, "the other course is untouched");
@@ -677,7 +681,10 @@ fn unarchiving_skips_a_task_completed_while_archived() {
 
     app.unarchive_course(1);
 
-    assert!(!app.data.dashboard.contains(&10), "finished work stays finished");
+    assert!(
+        !app.data.dashboard.contains(&10),
+        "finished work stays finished"
+    );
     assert!(app.data.dashboard.contains(&11));
     assert!(!app.data.tasks[0].relink, "flag cleared either way");
 }
@@ -695,4 +702,18 @@ fn unarchiving_does_not_double_add_a_manually_relinked_task() {
         1,
         "task 10 appears exactly once"
     );
+}
+
+#[test]
+fn x_archives_the_selected_course_and_capital_x_opens_the_archive() {
+    let mut app = app_with_course();
+    app.pane = crate::app::Pane::Courses;
+    app.course_sel = 0; // "Stats"
+
+    app.handle_key(KeyCode::Char('x'), KeyModifiers::NONE);
+    assert!(app.data.projects[0].archived);
+    assert_eq!(app.visible_courses().len(), 1);
+
+    app.handle_key(KeyCode::Char('X'), KeyModifiers::NONE);
+    assert_eq!(app.view, crate::app::View::Archived);
 }

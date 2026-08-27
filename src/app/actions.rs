@@ -79,8 +79,6 @@ impl App {
     /// Archive a course: hide it, and take its tasks off the dashboard while
     /// remembering which ones were there so `unarchive_course` can put exactly
     /// those back.
-    /// Unused until the archive keys land.
-    #[allow(dead_code)]
     pub fn archive_course(&mut self, pid: u64) {
         let dash = self.data.dashboard.clone();
         let ids: Vec<u64> = self
@@ -113,8 +111,6 @@ impl App {
     /// Restore an archived course and re-link the tasks that were on the
     /// dashboard when it was archived. Skips anything completed in the
     /// meantime, and anything the user already re-linked by hand.
-    /// Unused until the archive keys land.
-    #[allow(dead_code)]
     pub fn unarchive_course(&mut self, pid: u64) {
         let mut to_link: Vec<u64> = Vec::new();
         for t in self.data.tasks.iter_mut() {
