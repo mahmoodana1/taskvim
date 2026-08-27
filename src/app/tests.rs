@@ -174,3 +174,38 @@ fn set_dash_section_moves_the_task_and_follows_the_cursor() {
     );
     assert_eq!(app.task_sel, 1, "cursor follows the task it just moved");
 }
+
+#[test]
+fn moving_a_task_down_stays_inside_its_section() {
+    let mut app = test_app(vec![
+        sectioned(1, "first", DashSection::General),
+        sectioned(2, "second", DashSection::General),
+        sectioned(3, "agent task", DashSection::Agent),
+    ]);
+    // rows: 0 Important · 1 General · 2 task1 · 3 task2 · 4 Agent · 5 task3
+    app.task_sel = 3; // "second"
+
+    app.move_dash_task(1);
+
+    assert_eq!(
+        app.dash_rows()[4],
+        DashRow::Section(DashSection::Agent),
+        "task 2 did not leak into the Agent section"
+    );
+    assert_eq!(app.task_sel, 3, "cursor did not move — already last in section");
+}
+
+#[test]
+fn moving_a_task_up_swaps_with_its_section_sibling() {
+    let mut app = test_app(vec![
+        sectioned(1, "first", DashSection::General),
+        sectioned(2, "second", DashSection::General),
+    ]);
+    app.task_sel = 3; // "second"
+
+    app.move_dash_task(-1);
+
+    assert_eq!(app.dash_rows()[2], DashRow::Task(2));
+    assert_eq!(app.dash_rows()[3], DashRow::Task(1));
+    assert_eq!(app.task_sel, 2, "cursor follows the moved task");
+}

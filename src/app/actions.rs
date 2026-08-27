@@ -280,18 +280,23 @@ impl App {
         self.save_quiet();
     }
 
+    /// Reorder the selected task among the siblings in its own section.
+    /// Because `dash_rows()` groups by section, a task's section siblings are
+    /// its adjacent `DashRow::Task` rows — a move that would cross a header is
+    /// simply refused.
     pub fn move_dash_task(&mut self, delta: i32) {
-        let visible = self.dash_ids();
-        let len = visible.len();
-        if len < 2 || self.task_sel >= len {
+        let rows = self.dash_rows();
+        let Some(DashRow::Task(a_id)) = rows.get(self.task_sel).copied() else {
             return;
-        }
+        };
         let target = self.task_sel as i32 + delta;
-        if target < 0 || target as usize >= len {
+        if target < 0 || target as usize >= rows.len() {
             return;
         }
-        let a_id = visible[self.task_sel];
-        let b_id = visible[target as usize];
+        let Some(DashRow::Task(b_id)) = rows.get(target as usize).copied() else {
+            // Neighbour is a section header — we're at the edge of the section.
+            return;
+        };
         let a = self.data.dashboard.iter().position(|id| *id == a_id);
         let b = self.data.dashboard.iter().position(|id| *id == b_id);
         if let (Some(a), Some(b)) = (a, b) {
