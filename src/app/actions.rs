@@ -45,6 +45,8 @@ impl App {
             due,
             completed: false,
             dash_section: crate::model::DashSection::default(),
+            repeat: None,
+            period: None,
         });
         if pin {
            self.data.dashboard.push(id);

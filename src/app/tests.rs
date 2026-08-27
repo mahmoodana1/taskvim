@@ -24,6 +24,8 @@ pub fn task(id: u64, text: &str) -> Task {
         due: None,
         completed: false,
         dash_section: crate::model::DashSection::General,
+        repeat: None,
+        period: None,
     }
 }
 

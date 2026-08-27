@@ -22,6 +22,46 @@ pub struct Task {
     pub completed: bool,
     #[serde(default)]
     pub dash_section: DashSection,
+    /// Set on habits. A recurring task never carries a due date.
+    #[serde(default)]
+    pub repeat: Option<Repeat>,
+    /// Start date of the period `completed` refers to. `None` until the first
+    /// tick stamps it.
+    #[serde(default)]
+    pub period: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum RepeatUnit {
+    Day,
+    Week,
+    Month,
+}
+
+/// A habit's cadence. `anchor` is the date the repeat was set and defines the
+/// grid the ticks land on — see `due::period_start`.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+pub struct Repeat {
+    pub every: u32,
+    pub unit: RepeatUnit,
+    pub anchor: String, // YYYY-MM-DD
+}
+
+impl Repeat {
+    /// "daily" · "weekly" · "every 3d" · "every 2w" · "monthly"
+    #[allow(dead_code)] // consumed by Task 22 (the `~` repeat menu / task display)
+    pub fn label(&self) -> String {
+        let n = self.every.max(1);
+        match (n, self.unit) {
+            (1, RepeatUnit::Day) => "daily".to_string(),
+            (1, RepeatUnit::Week) => "weekly".to_string(),
+            (1, RepeatUnit::Month) => "monthly".to_string(),
+            (n, RepeatUnit::Day) => format!("every {}d", n),
+            (n, RepeatUnit::Week) => format!("every {}w", n),
+            (n, RepeatUnit::Month) => format!("every {}mo", n),
+        }
+    }
 }
 
 /// The three fixed dashboard sections. Deliberately an enum and not a
