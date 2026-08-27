@@ -55,6 +55,10 @@ pub struct LogEntry {
     pub task: Option<u64>,
 }
 
+/// How many colours courses cycle through when assigned automatically.
+/// Must match the length of the UI palette in `ui::theme::PALETTE`.
+pub const COLOR_COUNT: usize = 6;
+
 #[derive(Serialize, Deserialize, Default, Clone, PartialEq)]
 pub struct Data {
     #[serde(default)]

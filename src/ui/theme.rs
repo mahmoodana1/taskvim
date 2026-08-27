@@ -5,6 +5,7 @@ use chrono::{Duration as CDuration, Local, NaiveDate};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
 
+// Length must stay in sync with `model::COLOR_COUNT`.
 pub const PALETTE: [Color; 6] = [
     Color::LightBlue,
     Color::LightMagenta,

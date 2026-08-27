@@ -6,8 +6,7 @@ use rand::Rng;
 
 use crate::app::{App, InsertTarget, Mode, Pane, Row, View};
 use crate::due::parse_due;
-use crate::model::{LogEntry, Project, Section, Task};
-use crate::ui::theme::PALETTE;
+use crate::model::{LogEntry, Project, Section, Task, COLOR_COUNT};
 
 impl App {
     /// Strip only a trailing `!due` token. Used by the course modal, where the
@@ -103,7 +102,7 @@ impl App {
         }
         let id = self.data.new_id();
         let color = self.data.next_color;
-        self.data.next_color = (self.data.next_color + 1) % PALETTE.len();
+        self.data.next_color = (self.data.next_color + 1) % COLOR_COUNT;
         self.data.projects.push(Project { id, name, color });
         self.course_sel = self.data.projects.len() - 1;
         self.status = String::from("course added — ⏎ opens it");
