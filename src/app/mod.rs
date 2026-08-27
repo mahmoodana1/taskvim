@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use chrono::{Datelike, Local, NaiveDate};
 
-use crate::model::{Data, LogEntry, Project, Section, Task};
+use crate::model::{Data, DashSection, LogEntry, Project, Section, Task};
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum Pane {
@@ -33,6 +33,14 @@ pub enum View {
 pub enum Row {
     Section(u64),
     NoSection,
+    Task(u64),
+}
+
+/// A row on the main dashboard: the three fixed section headers interleaved
+/// with their tasks. Mirrors `Row`, which does the same job inside a course.
+#[derive(PartialEq, Clone, Copy, Debug)]
+pub enum DashRow {
+    Section(DashSection),
     Task(u64),
 }
 
@@ -306,6 +314,51 @@ impl App {
         self.data.dashboard.contains(&tid)
     }
 
+    /// Dashboard rows in display order. `data.dashboard` remains the source of
+    /// truth for task *order*; the section is a property of the task, so this
+    /// walks the dashboard once per section and preserves relative order.
+    /// Empty section headers are kept so 1/2/3 always have a visible target.
+    pub fn dash_rows(&self) -> Vec<DashRow> {
+        let visible = self.dash_ids();
+        let mut rows = Vec::with_capacity(visible.len() + DashSection::ALL.len());
+        for sec in DashSection::ALL {
+            rows.push(DashRow::Section(sec));
+            for id in &visible {
+                if self.task(*id).map(|t| t.dash_section == sec).unwrap_or(false) {
+                    rows.push(DashRow::Task(*id));
+                }
+            }
+        }
+        rows
+    }
+
+    /// The task under the cursor, or `None` when the cursor is on a header.
+    // Only exercised by tests so far — rendering (Task 14) and the key
+    // handlers (Task 15) are what consume this in the app. Remove this
+    // allow once they land.
+    #[allow(dead_code)]
+    pub fn selected_task(&self) -> Option<u64> {
+        match self.dash_rows().get(self.task_sel) {
+            Some(DashRow::Task(id)) => Some(*id),
+            _ => None,
+        }
+    }
+
+    /// The section the cursor sits in — its own header, or the header above
+    /// the selected task. Used to decide where `a` adds a new task.
+    // No callers yet — the key handlers (Task 15) are what consume this.
+    // Remove this allow once it lands.
+    #[allow(dead_code)]
+    pub fn selected_section(&self) -> DashSection {
+        let rows = self.dash_rows();
+        for i in (0..=self.task_sel.min(rows.len().saturating_sub(1))).rev() {
+            if let Some(DashRow::Section(s)) = rows.get(i) {
+                return *s;
+            }
+        }
+        DashSection::General
+    }
+
     // ------------------------------------------------------------ course rows
 
     pub fn course_rows(&self, pid: u64) -> Vec<Row> {
@@ -355,7 +408,7 @@ impl App {
     // -------------------------------------------------------- bounds clamping
 
     pub fn clamp(&mut self) {
-        let visible = self.dash_ids().len();
+        let visible = self.dash_rows().len();
         if self.task_sel >= visible {
             self.task_sel = visible.saturating_sub(1);
         }

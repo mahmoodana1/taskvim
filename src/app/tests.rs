@@ -80,3 +80,78 @@ fn daily_count_ignores_completions_from_non_dashboard_tasks() {
         "completing a non-dashboard task must not count, even though its text matches a dashboard task"
     );
 }
+
+use crate::app::DashRow;
+use crate::model::DashSection;
+
+fn sectioned(id: u64, text: &str, sec: DashSection) -> crate::model::Task {
+    let mut t = task(id, text);
+    t.dash_section = sec;
+    t
+}
+
+#[test]
+fn dash_rows_groups_tasks_under_all_three_headers() {
+    let app = test_app(vec![
+        sectioned(1, "b", DashSection::General),
+        sectioned(2, "a", DashSection::Important),
+        sectioned(3, "c", DashSection::Agent),
+    ]);
+
+    assert_eq!(
+        app.dash_rows(),
+        vec![
+            DashRow::Section(DashSection::Important),
+            DashRow::Task(2),
+            DashRow::Section(DashSection::General),
+            DashRow::Task(1),
+            DashRow::Section(DashSection::Agent),
+            DashRow::Task(3),
+        ]
+    );
+}
+
+#[test]
+fn dash_rows_renders_empty_section_headers() {
+    let app = test_app(vec![sectioned(1, "only", DashSection::General)]);
+
+    assert_eq!(
+        app.dash_rows(),
+        vec![
+            DashRow::Section(DashSection::Important),
+            DashRow::Section(DashSection::General),
+            DashRow::Task(1),
+            DashRow::Section(DashSection::Agent),
+        ],
+        "empty sections still render so 1/2/3 always have a visible target"
+    );
+}
+
+#[test]
+fn dash_rows_preserves_dashboard_order_within_a_section() {
+    let mut app = test_app(vec![
+        sectioned(1, "first", DashSection::General),
+        sectioned(2, "second", DashSection::General),
+    ]);
+    app.data.dashboard = vec![2, 1];
+
+    assert_eq!(
+        app.dash_rows(),
+        vec![
+            DashRow::Section(DashSection::Important),
+            DashRow::Section(DashSection::General),
+            DashRow::Task(2),
+            DashRow::Task(1),
+            DashRow::Section(DashSection::Agent),
+        ]
+    );
+}
+
+#[test]
+fn selected_task_is_none_on_a_section_header() {
+    let mut app = test_app(vec![sectioned(1, "x", DashSection::General)]);
+    app.task_sel = 0; // Important header
+    assert_eq!(app.selected_task(), None);
+    app.task_sel = 2; // the task under General
+    assert_eq!(app.selected_task(), Some(1));
+}

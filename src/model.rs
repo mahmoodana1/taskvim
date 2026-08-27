@@ -36,9 +36,6 @@ pub enum DashSection {
     Agent,
 }
 
-// `ALL` and `title` have no callers yet — rendering (Task 14) and the row
-// model (Task 13) are what consume them. Remove this once they land.
-#[allow(dead_code)]
 impl DashSection {
     /// Display order on the dashboard. Fixed.
     pub const ALL: [DashSection; 3] = [
@@ -47,6 +44,9 @@ impl DashSection {
         DashSection::Agent,
     ];
 
+    // No callers yet — rendering (Task 14) is what consumes this. Remove
+    // this allow once it lands.
+    #[allow(dead_code)]
     pub fn title(&self) -> &'static str {
         match self {
             DashSection::Important => "Important",
