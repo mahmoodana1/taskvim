@@ -9,10 +9,12 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Padding, Parag
 use ratatui::Frame;
 
 use crate::app::{App, DashRow, Pane, View};
-use crate::model::Task;
+use crate::model::{DashSection, Task};
 use crate::ui::courses::draw_courses;
 use crate::ui::heatmap::{draw_daily_goal, draw_heatmap, draw_priority};
-use crate::ui::theme::{due_span, ellipsize, palette, repeat_span, ACCENT, DIM, SEL_BG};
+use crate::ui::theme::{
+    due_span, ellipsize, palette, repeat_span, section_color, ACCENT, DIM, SEL_BG,
+};
 
 pub fn draw_dashboard(f: &mut Frame, app: &App, area: Rect) {
     let cols = Layout::horizontal([Constraint::Length(40), Constraint::Min(30)]).split(area);
@@ -58,12 +60,11 @@ pub fn draw_greeting(f: &mut Frame, area: Rect) {
     );
 }
 
-pub fn task_line(app: &App, t: &Task, show_pin: bool, indent: bool) -> ListItem<'static> {
+/// The content spans for one dashboard task: project tag, title, and the
+/// trailing badge (cadence or due date — a task never has both). The caller
+/// positions and pads these; `task_spans` does not decide layout.
+pub fn task_spans(app: &App, t: &Task) -> (Vec<Span<'static>>, Option<Span<'static>>) {
     let mut spans = vec![];
-    if indent {
-        // Two columns, so the task reads as belonging to the header above it.
-        spans.push(Span::raw("  "));
-    }
     let style = if t.completed {
         Style::default().fg(DIM).add_modifier(Modifier::DIM)
     } else {
@@ -95,20 +96,93 @@ pub fn task_line(app: &App, t: &Task, show_pin: bool, indent: bool) -> ListItem<
         t.text.clone()
     };
     spans.push(Span::styled(text, style));
-    if show_pin && app.is_pinned(t.id) {
-        spans.push(Span::styled("  ↗", Style::default().fg(Color::LightCyan)));
-    }
-    let mut lines = vec![Line::from(spans)];
-    if !t.completed {
-        // A task has a repeat or a due date, never both.
-        let badge = repeat_span(&t.repeat).or_else(|| due_span(&t.due));
-        if let Some(s) = badge {
-            // Second line so long titles never collide with the badge.
-            let lead = if indent { "   " } else { " " };
-            lines.push(Line::from(vec![Span::raw(lead), s]));
+
+    // A task has a repeat or a due date, never both.
+    let badge = if t.completed {
+        None
+    } else {
+        repeat_span(&t.repeat).or_else(|| due_span(&t.due))
+    };
+    (spans, badge)
+}
+
+/// `┌ IMPORTANT ─────────── 2 ┐`
+fn box_top(sec: DashSection, count: usize, width: usize, color: Color) -> ListItem<'static> {
+    let title = format!(" {} ", sec.title().to_uppercase());
+    let tail = format!(" {} ", count);
+    let rule = width
+        .saturating_sub(2 + title.chars().count() + tail.chars().count())
+        .max(1);
+    ListItem::new(Line::from(vec![
+        Span::styled(
+            format!("┌{}", title),
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("─".repeat(rule), Style::default().fg(color)),
+        Span::styled(tail, Style::default().fg(DIM)),
+        Span::styled("┐", Style::default().fg(color)),
+    ]))
+}
+
+/// `└─────────────────────────┘`
+fn box_bottom(width: usize, color: Color) -> ListItem<'static> {
+    ListItem::new(Line::from(Span::styled(
+        format!("└{}┘", "─".repeat(width.saturating_sub(2))),
+        Style::default().fg(color),
+    )))
+}
+
+/// `│                         │` — an empty section's interior.
+fn box_fill(width: usize, color: Color) -> ListItem<'static> {
+    ListItem::new(Line::from(vec![
+        Span::styled("│", Style::default().fg(color)),
+        Span::raw(" ".repeat(width.saturating_sub(2))),
+        Span::styled("│", Style::default().fg(color)),
+    ]))
+}
+
+/// `│ buy groceries    ↻ daily │` — content left, badge right, padded so the
+/// closing bar always lands in the same column. All measurements use ratatui's
+/// Unicode display width, never byte or char counts, because the badges carry
+/// wide glyphs (`⚠`, `↻`).
+fn box_task(app: &App, t: &Task, width: usize, color: Color) -> ListItem<'static> {
+    let inner = width.saturating_sub(2);
+    let (content, badge) = task_spans(app, t);
+    let badge_w = badge.as_ref().map(|b| b.width()).unwrap_or(0);
+    // 1 leading space + content + gap + badge + 1 trailing space
+    let avail = inner.saturating_sub(badge_w + 2);
+
+    let mut line: Vec<Span<'static>> = vec![
+        Span::styled("│", Style::default().fg(color)),
+        Span::raw(" "),
+    ];
+    let mut used = 0usize;
+    for s in content {
+        let w = s.width();
+        if used + w <= avail {
+            used += w;
+            line.push(s);
+        } else {
+            let room = avail.saturating_sub(used);
+            if room > 1 {
+                let cut: String = s.content.chars().take(room - 1).collect();
+                let cut_w = Span::raw(cut.clone()).width();
+                used += cut_w + 1;
+                line.push(Span::styled(format!("{}…", cut), s.style));
+            }
+            break;
         }
     }
-    ListItem::new(lines)
+
+    // The run between the two bars must be exactly `inner` wide:
+    //   1 leading space + used + pad + badge_w + 1 trailing space
+    line.push(Span::raw(" ".repeat(inner.saturating_sub(used + badge_w + 2))));
+    if let Some(b) = badge {
+        line.push(b);
+    }
+    line.push(Span::raw(" "));
+    line.push(Span::styled("│", Style::default().fg(color)));
+    ListItem::new(Line::from(line))
 }
 
 pub fn draw_task_sidebar(f: &mut Frame, app: &App, area: Rect) {
@@ -127,15 +201,18 @@ pub fn draw_task_sidebar(f: &mut Frame, app: &App, area: Rect) {
         (false, true) => format!(" a:add · {} done today (:log) ", done_today),
         (false, false) => " a:add r:random ".to_string(),
     };
+    // Borderless: the section boxes ARE the panel. The block is kept only for
+    // its title and footer hints — nesting a second border around the boxes
+    // wastes four columns and reads as heavy.
     let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(border))
+        .borders(Borders::NONE)
         .title(Span::styled(
-            format!(" Tasks — dashboard ({}) ", app.dash_ids().len()),
-            Style::default().add_modifier(Modifier::BOLD),
+            format!(" tasks ({}) ", app.dash_ids().len()),
+            Style::default().fg(border).add_modifier(Modifier::BOLD),
         ))
         .title_bottom(Line::from(Span::styled(footer, Style::default().fg(DIM))));
 
+    let width = area.width as usize;
     let rows = app.dash_rows();
     let items: Vec<ListItem> = rows
         .iter()
@@ -146,21 +223,14 @@ pub fn draw_task_sidebar(f: &mut Frame, app: &App, area: Rect) {
                     .iter()
                     .filter(|id| app.task(**id).map(|t| t.dash_section == *sec).unwrap_or(false))
                     .count();
-                ListItem::new(Line::from(vec![
-                    Span::styled(
-                        format!("▸ {}", sec.title()),
-                        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(format!("  {}", count), Style::default().fg(DIM)),
-                ]))
+                box_top(*sec, count, width, section_color(*sec))
             }
             DashRow::Task(id) => match app.task(*id) {
-                Some(t) => task_line(app, t, false, true),
+                Some(t) => box_task(app, t, width, section_color(t.dash_section)),
                 None => ListItem::new(Line::from("")),
             },
-            DashRow::SectionFill(_) | DashRow::SectionBottom(_) => {
-                ListItem::new(Line::from(""))
-            }
+            DashRow::SectionFill(sec) => box_fill(width, section_color(*sec)),
+            DashRow::SectionBottom(sec) => box_bottom(width, section_color(*sec)),
         })
         .collect();
 

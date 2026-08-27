@@ -5,7 +5,7 @@ use chrono::{Duration as CDuration, Local, NaiveDate};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
 
-use crate::model::Repeat;
+use crate::model::{DashSection, Repeat};
 
 // Length must stay in sync with `model::COLOR_COUNT`.
 pub const PALETTE: [Color; 6] = [
@@ -23,6 +23,18 @@ pub const SEL_BG: Color = Color::Rgb(45, 45, 65);
 
 pub fn palette(idx: usize) -> Color {
     PALETTE[idx % PALETTE.len()]
+}
+
+/// Each dashboard section owns a colour, used on its box border and title.
+/// Section colour is chrome only — task text keeps status colour (overdue red,
+/// due-today amber, habits dim) so the two systems never fight for the same
+/// glyph.
+pub fn section_color(sec: DashSection) -> Color {
+    match sec {
+        DashSection::Important => Color::LightRed,
+        DashSection::General => Color::LightBlue,
+        DashSection::Agent => Color::LightMagenta,
+    }
 }
 
 pub fn due_span(due: &Option<String>) -> Option<Span<'static>> {
