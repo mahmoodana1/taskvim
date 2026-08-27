@@ -54,6 +54,7 @@ pub fn draw_help(f: &mut Frame, area: Rect) {
         key("t / e", "set due date · rename"),
         key("+ -  [ ]", "daily goal · heatmap year"),
         key("o", "open history log"),
+        key("x / X", "archive the selected course · open the archive"),
         key(
             "u / Ctrl-R",
             "undo · redo the last action (deletion, completion, add…)",
@@ -104,7 +105,7 @@ pub fn draw_help(f: &mut Frame, area: Rect) {
             ":w :q :wq",
             "save / quit · :log :db history / dashboard · :goal N",
         ),
-        key("", ":year YYYY · :clearlog · :help"),
+        key("", ":year YYYY · :clearlog · :archived · :help"),
         Line::from(Span::styled(
             "  press any key to return",
             Style::default().fg(DIM),

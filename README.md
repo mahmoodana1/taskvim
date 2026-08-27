@@ -64,13 +64,13 @@ compiles on distros with older Rust. Building from source takes ~30 s.
 glibc ≥ 2.39: Ubuntu 24.04+, Fedora 40+, Arch. It is **not** tracked in git, so
 a fresh clone won't have one; build from source instead.)
 
-Data: `~/.local/share/taskvim/data.json` (respects `$XDG_DATA_HOME`), format v3.
-v0.1 and v0.2 files are migrated automatically on load — existing tasks land in
+Data: `~/.local/share/taskvim/data.json` (respects `$XDG_DATA_HOME`), format v4.
+Older files are migrated automatically on load — existing tasks land in
 *General* and nothing is dropped. Back it up, sync it, edit it by hand — it's
 yours.
 
-Note that v0.2 binaries will silently drop the new fields if they write a v3
-file, so don't run both versions against the same data.
+Note that older binaries will silently drop the newer fields if they write the
+file, so don't run two versions against the same data.
 
 ## Keybindings
 
@@ -117,6 +117,17 @@ file, so don't run both versions against the same data.
 `2026-07-10` · `7-10` (this year) · `+3` (in 3 days) · `today` · `tomorrow` · `none` (clear).
 Overdue tasks show `⚠ was due …` and each course card shows a `⚠N` overdue badge.
 
+### Archiving courses
+
+`x` on a course card archives it: the card disappears and its tasks come off
+your dashboard, but nothing is deleted. `X` (or `:archived`) opens the archive,
+where `x` restores a course and puts exactly those tasks back — skipping any you
+finished in the meantime. `⏎` there opens an archived course read-only, so
+archiving never puts its tasks out of reach.
+
+The `COURSES` panel shows `3 of 7 ▾` when it is holding more than it can
+display; `j`/`k` scroll it.
+
 ### Recurring tasks
 
 `~` turns a task into a habit. Habits never carry a due date and never go
@@ -136,7 +147,7 @@ of course progress percentages — it never finishes, so counting it would make
 the bar oscillate.
 
 ### Ex commands
-`:w` `:q` `:wq` · `:log` · `:db` · `:goal N` · `:year YYYY` · `:clearlog` · `:help`
+`:w` `:q` `:wq` · `:log` · `:db` · `:archived` · `:goal N` · `:year YYYY` · `:clearlog` · `:help`
 
 ## The "git log" view
 

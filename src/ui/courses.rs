@@ -12,15 +12,14 @@ use crate::ui::theme::{due_span, fit_span, palette, repeat_span, ACCENT, DIM, SE
 pub fn draw_courses(f: &mut Frame, app: &App, area: Rect) {
     let active = app.pane == Pane::Courses && app.view == View::Dashboard;
 
-    let n_projects = app.data.projects.len();
+    let courses = app.visible_courses();
     let inner_h = area.height.saturating_sub(2) as usize;
-    let max_visible = inner_h / 2;
-    let hidden = n_projects.saturating_sub(max_visible);
-
-    let title = if hidden > 0 {
-        format!(" COURSES  (+{} hidden) ", hidden)
+    let max_visible = inner_h / 2; // two rows per course
+                                   // "3 of 7 ▾" reads as "there is more below"; a bare count does not.
+    let title = if courses.len() > max_visible {
+        format!(" COURSES  {} of {} ▾ ", max_visible, courses.len())
     } else {
-        String::from(" COURSES ")
+        format!(" COURSES  {} ", courses.len())
     };
 
     let block = Block::default()
@@ -31,7 +30,7 @@ pub fn draw_courses(f: &mut Frame, app: &App, area: Rect) {
             Style::default().add_modifier(Modifier::BOLD),
         ))
         .title_bottom(Line::from(Span::styled(
-            " ⏎:open a:new course A:quick task e:rename dd:delete ",
+            " ⏎:open a:new x:archive X:archived e:rename dd:delete ",
             Style::default().fg(DIM),
         )));
 
