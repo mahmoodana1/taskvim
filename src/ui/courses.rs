@@ -7,7 +7,7 @@ use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragra
 use ratatui::Frame;
 
 use crate::app::{App, Pane, Row, View};
-use crate::ui::theme::{due_span, palette, ACCENT, DIM, SEL_BG};
+use crate::ui::theme::{due_span, palette, repeat_span, ACCENT, DIM, SEL_BG};
 
 pub fn draw_courses(f: &mut Frame, app: &App, area: Rect) {
     let active = app.pane == Pane::Courses && app.view == View::Dashboard;
@@ -191,7 +191,9 @@ pub fn draw_course_modal(f: &mut Frame, app: &App, area: Rect) {
                 spans.push(Span::styled(text, style));
                 let mut lines = vec![Line::from(spans)];
                 if !t.completed {
-                    if let Some(s) = due_span(&t.due) {
+                    // A task has a repeat or a due date, never both.
+                    let badge = repeat_span(&t.repeat).or_else(|| due_span(&t.due));
+                    if let Some(s) = badge {
                         // Indent to line up under the task text, past the bullet marker.
                         lines.push(Line::from(vec![Span::raw("     "), s]));
                     }

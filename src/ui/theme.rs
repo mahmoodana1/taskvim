@@ -5,6 +5,8 @@ use chrono::{Duration as CDuration, Local, NaiveDate};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
 
+use crate::model::Repeat;
+
 // Length must stay in sync with `model::COLOR_COUNT`.
 pub const PALETTE: [Color; 6] = [
     Color::LightBlue,
@@ -48,6 +50,16 @@ pub fn due_span(due: &Option<String>) -> Option<Span<'static>> {
         )
     };
     Some(Span::styled(txt, style))
+}
+
+/// The cadence badge shown where a due span would otherwise sit — a task can
+/// have a repeat or a due date, never both.
+pub fn repeat_span(repeat: &Option<Repeat>) -> Option<Span<'static>> {
+    let r = repeat.as_ref()?;
+    Some(Span::styled(
+        format!("  ↻ {}", r.label()),
+        Style::default().fg(DIM),
+    ))
 }
 
 pub fn ellipsize(s: &str, max: usize) -> String {

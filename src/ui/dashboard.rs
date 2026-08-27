@@ -12,7 +12,7 @@ use crate::app::{App, DashRow, Pane, View};
 use crate::model::Task;
 use crate::ui::courses::draw_courses;
 use crate::ui::heatmap::{draw_daily_goal, draw_heatmap, draw_priority};
-use crate::ui::theme::{due_span, ellipsize, palette, ACCENT, DIM, SEL_BG};
+use crate::ui::theme::{due_span, ellipsize, palette, repeat_span, ACCENT, DIM, SEL_BG};
 
 pub fn draw_dashboard(f: &mut Frame, app: &App, area: Rect) {
     let cols = Layout::horizontal([Constraint::Length(40), Constraint::Min(30)]).split(area);
@@ -100,8 +100,10 @@ pub fn task_line(app: &App, t: &Task, show_pin: bool, indent: bool) -> ListItem<
     }
     let mut lines = vec![Line::from(spans)];
     if !t.completed {
-        if let Some(s) = due_span(&t.due) {
-            // Second line so long titles never collide with the due badge.
+        // A task has a repeat or a due date, never both.
+        let badge = repeat_span(&t.repeat).or_else(|| due_span(&t.due));
+        if let Some(s) = badge {
+            // Second line so long titles never collide with the badge.
             let lead = if indent { "   " } else { " " };
             lines.push(Line::from(vec![Span::raw(lead), s]));
         }
