@@ -349,11 +349,24 @@ pub fn draw_heatmap(f: &mut Frame, app: &App, area: Rect) {
 
     lines.push(Line::from(vec![
         Span::styled(
-            format!("     {} contributions in {}", total, year),
+            format!(
+                "     {} {} in {}",
+                total,
+                if total == 1 {
+                    "contribution"
+                } else {
+                    "contributions"
+                },
+                year
+            ),
             Style::default().add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            format!("  ·  {} active days", active.len()),
+            format!(
+                "  ·  {} active {}",
+                active.len(),
+                if active.len() == 1 { "day" } else { "days" }
+            ),
             Style::default().fg(DIM),
         ),
         Span::styled("    less ", Style::default().fg(DIM)),

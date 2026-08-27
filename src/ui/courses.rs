@@ -37,7 +37,9 @@ pub fn draw_courses(f: &mut Frame, app: &App, area: Rect) {
 
     if app.data.projects.is_empty() {
         f.render_widget(
-            Paragraph::new("\n no courses yet — press a to create one")
+            // No leading newline: the panel is sized to its content, so a
+            // blank first line would push the message out of view entirely.
+            Paragraph::new(" no courses yet — press a to create one")
                 .style(Style::default().fg(DIM))
                 .block(block),
             area,

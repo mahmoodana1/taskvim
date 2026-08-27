@@ -17,36 +17,81 @@ use crate::ui::theme::{
 };
 
 pub fn draw_dashboard(f: &mut Frame, app: &App, area: Rect) {
-    // Even split: the task column and the stats rail get half the width each.
-    // A full-width band across the bottom anchors the layout and fills what
-    // was dead space under both columns.
-    let outer = Layout::vertical([Constraint::Min(10), Constraint::Length(7)]).split(area);
+    // Panel heights, in rows. Each is content + 2 border rows.
+    const GREETING: u16 = 3;
+    const NOW: u16 = 3;
+    const GOAL: u16 = 4;
+    const HEATMAP: u16 = 11; // month row + 7 days + totals + borders
+    const WEEK: u16 = 7; //     3 bar rows + labels + totals + borders
+
+    let courses_h = (app.data.projects.len() as u16 * 2 + 2).clamp(3, 16);
+
+    // Drop optional panels rather than let them render clipped and useless.
+    // The heatmap is all-or-nothing: at 3 rows it loses every day row and
+    // shows only a header, which is worse than not showing it.
+    // The heatmap needs a month row and all seven day rows to mean anything;
+    // its totals line is the only part it can give up.
+    const HEATMAP_MIN: u16 = 10;
+
+    let week_h = if area.height >= 22 { WEEK } else { 0 };
+    let fixed = GREETING + NOW + GOAL + courses_h;
+    let room = area.height.saturating_sub(week_h).saturating_sub(fixed);
+    let heat_h = if room >= HEATMAP_MIN {
+        room.min(HEATMAP)
+    } else {
+        0
+    };
+
+    // Size the main region to whichever column actually needs more, so the
+    // bottom band follows the content instead of being pinned to the screen
+    // edge with a hole above it.
+    let sidebar_need = app.dash_rows().len() as u16 + 2; // list + title + footer
+    let rail_need = fixed + heat_h;
+    let main_h = sidebar_need
+        .max(rail_need)
+        .min(area.height.saturating_sub(week_h));
+
+    let outer = Layout::vertical([
+        Constraint::Length(main_h),
+        Constraint::Length(week_h),
+        Constraint::Min(0), // slack, below everything
+    ])
+    .split(area);
 
     let cols = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(outer[0]);
-    draw_task_sidebar(f, app, cols[0]);
 
-    // Every panel is sized to its content and the slack falls off the bottom,
-    // so nothing renders a field of blank rows the way the old courses panel
-    // did. Two rows per course: its name, then its progress bar.
-    let courses_h = (app.data.projects.len() as u16 * 2 + 2).clamp(3, 16);
+    // Give the sidebar only the rows it needs, so its footer hints sit under
+    // the last box instead of floating at the bottom of a column stretched to
+    // match the taller rail. It still scrolls when the tasks outgrow the space.
+    let sidebar = Layout::vertical([
+        Constraint::Length(sidebar_need.min(main_h)),
+        Constraint::Min(0),
+    ])
+    .split(cols[0]);
+    draw_task_sidebar(f, app, sidebar[0]);
+
     let rail = Layout::vertical([
-        Constraint::Length(3),  // greeting
-        Constraint::Length(3),  // now
-        Constraint::Length(4),  // goal + streak
-        Constraint::Length(11), // heatmap
+        Constraint::Length(GREETING),
+        Constraint::Length(NOW),
+        Constraint::Length(GOAL),
+        Constraint::Length(heat_h),
         Constraint::Length(courses_h),
-        Constraint::Min(0), // slack
+        Constraint::Min(0),
     ])
     .split(cols[1]);
 
     draw_greeting(f, rail[0]);
     draw_priority(f, app, rail[1]);
     draw_daily_goal(f, app, rail[2]);
-    draw_heatmap(f, app, rail[3]);
+    if heat_h > 0 {
+        draw_heatmap(f, app, rail[3]);
+    }
     draw_courses(f, app, rail[4]);
 
-    draw_week(f, app, outer[1]);
+    if week_h > 0 {
+        draw_week(f, app, outer[1]);
+    }
 }
 
 pub fn draw_greeting(f: &mut Frame, area: Rect) {
