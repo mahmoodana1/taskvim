@@ -1,11 +1,15 @@
-# taskvim v0.2
+# taskvim v0.3
 
 A vim-motions-driven terminal task / project / course manager. Courses hold your
 full backlog organized under **sections** (subtitles like *Lectures*, *Labs*,
 *Assignments*); the **main dashboard shows only the tasks you link there** (or add
-manually) — your actual working set. Completing a task anywhere becomes a
-"commit" that feeds a GitHub-style contribution heatmap, a streak, the daily
-goal, and each course's progress bar. There's a `git log`-style history too.
+manually) — your actual working set, grouped under **Important**, **General** and
+**Agent**. Completing a task anywhere becomes a "commit" that feeds a
+GitHub-style contribution heatmap, a streak, the daily goal, and each course's
+progress bar. There's a `git log`-style history too.
+
+Tasks can also be **habits** — give one a cadence with `~` and it comes back on
+its own schedule instead of carrying a deadline.
 
 Works on any Linux distro (and macOS/Windows terminals — pure crossterm).
 Single binary, zero runtime dependencies, one plain-JSON data file.
@@ -14,20 +18,31 @@ Single binary, zero runtime dependencies, one plain-JSON data file.
 
 ```
 Course "Algorithms 2"                     Main dashboard (Tasks)
-├─ ▸ Lectures                             ▎[Algorithms 2] Lecture 7
-│    ↗ Lecture 7        ── p (link) ──►   ▎[Algorithms 2] Lab 3   ⚠ was due Jul 01
-│    ○ Lecture 8                          ▎buy groceries          (added manually)
-├─ ▸ Labs
-│    ↗ Lab 3  due Jul 05                  ↗ = linked to dashboard
-└─ ▸ Assignments                          ○ = backlog only
-     ○ Problem set 4
+├─ ▸ Lectures                             ▸ Important  2
+│    ↗ Lecture 7        ── p (link) ──►     ▎[Algorithms 2] Lecture 7
+│    ○ Lecture 8                            ▎fix the undo bug  ⚠ was due Jul 01
+├─ ▸ Labs                                 ▸ General  2
+│    ↗ Lab 3  due Jul 05                    ▎[Algorithms 2] Lab 3
+└─ ▸ Assignments                            ▎buy groceries     (added manually)
+     ○ Problem set 4                      ▸ Agent  1
+                                            ▎water plants      ↻ every 3d
+↗ = linked to dashboard
+○ = backlog only                          1/2/3 moves a task between sections
 ```
 
 - **Open a course** with `⏎` on its card → a modal shows its sections and tasks.
-- **`p`** links/unlinks a task to the main dashboard. `dd` on the dashboard only
-  *unlinks* a course task (it stays in its course); `D` deletes it for real.
+- **`p`** links/unlinks a task to the main dashboard (landing in *General*). `dd`
+  on the dashboard only *unlinks* a course task (it stays in its course); `D`
+  deletes it for real.
+- **Dashboard sections** are fixed: Important, General, Agent. `1` `2` `3` move
+  the selected task between them; `J` `K` reorder within one.
+- **Add syntax:** `lab report @algo !+3 #important` — `@course`, `!due`,
+  `#section` and `~repeat` may appear in any order. Sections prefix-match, so
+  `#i` `#g` `#a` work. Anything that doesn't resolve stays as literal text.
 - **Due dates** are optional (default none): press `t`, or append `!spec` while
-  adding — `lab report @algo !+3`.
+  adding.
+- **Habits** repeat instead: press `~`, or append `~3d`. They never carry a due
+  date.
 - **`u`** undoes the last completion from anywhere.
 
 ## Install
@@ -47,8 +62,13 @@ compiles on distros with older Rust. A prebuilt `taskvim-x86_64-linux` binary is
 included (needs glibc ≥ 2.39: Ubuntu 24.04+, Fedora 40+, Arch); otherwise build
 from source (~30 s).
 
-Data: `~/.local/share/taskvim/data.json` (respects `$XDG_DATA_HOME`). v0.1 files
-are migrated automatically. Back it up, sync it, edit it by hand — it's yours.
+Data: `~/.local/share/taskvim/data.json` (respects `$XDG_DATA_HOME`), format v3.
+v0.1 and v0.2 files are migrated automatically on load — existing tasks land in
+*General* and nothing is dropped. Back it up, sync it, edit it by hand — it's
+yours.
+
+Note that v0.2 binaries will silently drop the new fields if they write a v3
+file, so don't run both versions against the same data.
 
 ## Keybindings
 
@@ -64,9 +84,11 @@ are migrated automatically. Back it up, sync it, edit it by hand — it's yours.
 ### Dashboard
 | key | action |
 |---|---|
-| `a` | add a task to the dashboard — supports `@course` and `!due` |
+| `a` | add a task into the section at the cursor — supports all four suffixes |
+| `1` `2` `3` | move task to Important / General / Agent |
+| `~` | set repeat — `3d` `2w` `1mo` `daily` `weekly` `monthly` `none` |
 | `Enter` / `Space` | complete selected task — **on a course card: open it** |
-| `c` | complete the CURRENT PRIORITY (top) task |
+| `c` | make the selected task the CURRENT PRIORITY (top of Important) |
 | `dd` | unlink a course task from the dashboard · deletes loose tasks |
 | `D` | delete the task for real |
 | `r` | pull a random backlog task → current priority |
@@ -83,6 +105,7 @@ are migrated automatically. Back it up, sync it, edit it by hand — it's yours.
 | `p` | **link / unlink** the task ↗ to the main dashboard |
 | `m` / `M` | move task to the next / previous section |
 | `Enter` / `Space` | complete the task |
+| `~` | set repeat — course tasks can be habits too |
 | `t` `e` `R` | due date · rename task/section · rename course |
 | `dd` | delete task, or delete section (its tasks are kept, unsectioned) |
 | `J` / `K` | reorder tasks within a section, or reorder whole sections |
@@ -91,6 +114,24 @@ are migrated automatically. Back it up, sync it, edit it by hand — it's yours.
 ### Due date formats
 `2026-07-10` · `7-10` (this year) · `+3` (in 3 days) · `today` · `tomorrow` · `none` (clear).
 Overdue tasks show `⚠ was due …` and each course card shows a `⚠N` overdue badge.
+
+### Recurring tasks
+
+`~` turns a task into a habit. Habits never carry a due date and never go
+overdue: completing one logs a commit — so it still feeds the heatmap, streak
+and daily goal — then hides it until the period rolls over, at which point it
+comes back.
+
+Ticks land on a **fixed calendar grid**, whether or not you completed it: daily
+at midnight, weekly on Monday, monthly on the 1st, and `every N` striding from
+the day you set the repeat. **A period you skip leaves no trace** — no backlog,
+no overdue badge, no guilt. Missing Tuesday's habit doesn't make Wednesday's
+harder.
+
+Formats: `3d` · `2w` · `1mo` · `daily` · `weekly` · `monthly` · `none` (clear).
+A habit shows a dimmed `↻ every 3d` where a due date would sit, and is left out
+of course progress percentages — it never finishes, so counting it would make
+the bar oscillate.
 
 ### Ex commands
 `:w` `:q` `:wq` · `:log` · `:db` · `:goal N` · `:year YYYY` · `:clearlog` · `:help`
