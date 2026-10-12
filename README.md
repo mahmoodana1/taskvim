@@ -11,6 +11,10 @@ progress bar. There's a `git log`-style history too.
 Tasks can also be **habits** — give one a cadence with `~` and it comes back on
 its own schedule instead of carrying a deadline.
 
+The built-in **Calendar** combines the weekly course timetable with due tasks;
+tasks added there are ordinary TaskVim tasks and appear on the dashboard too.
+Use `Shift+C` to open it and `Shift+T` to return to Tasks.
+
 Works on any Linux distro (and macOS/Windows terminals — pure crossterm).
 Single binary, zero runtime dependencies, one plain-JSON data file.
 
@@ -64,7 +68,7 @@ compiles on distros with older Rust. Building from source takes ~30 s.
 glibc ≥ 2.39: Ubuntu 24.04+, Fedora 40+, Arch. It is **not** tracked in git, so
 a fresh clone won't have one; build from source instead.)
 
-Data: `~/.local/share/taskvim/data.json` (respects `$XDG_DATA_HOME`), format v4.
+Data: `~/.local/share/taskvim/data.json` (respects `$XDG_DATA_HOME`), format v5.
 Older files are migrated automatically on load — existing tasks land in
 *General* and nothing is dropped. Back it up, sync it, edit it by hand — it's
 yours.
@@ -77,6 +81,7 @@ file, so don't run two versions against the same data.
 ### Everywhere
 | key | action |
 |---|---|
+| `Shift+C` / `Shift+T` | Calendar / Tasks |
 | `j` `k` `gg` `G` | move / jump top / bottom |
 | `h` `l` `Tab` | switch pane; `Tab` inside a course cycles to the next course |
 | `J` / `K` | reorder task (or section) up / down |
@@ -98,6 +103,32 @@ file, so don't run two versions against the same data.
 | `A` | quick-add a task into the selected course (backlog) |
 | `+` `-` / `[` `]` | daily goal · heatmap year |
 | `o` | open the commit-style completed history |
+
+### Calendar
+| key | action |
+|---|---|
+| `d` / `w` / `m` | day / week / month view (week starts Sunday; all seven days shown) |
+| `h` `l` / `j` `k` | move date / selection; in week and month, `j`/`k` move by a week |
+| `[` / `]` | previous / next month |
+| `t` | jump to today |
+| `a` | add a task due on the selected day (`!date` can override it); add `09:00-10:00` for a time |
+| `e` | add an event: `Team meeting 09:00-10:00` |
+| `s` | set/clear a task time or edit the selected event’s time |
+| `dd` | delete the selected task/event, or hide a Yedion item locally |
+| `u` / `Ctrl+r` | undo / redo calendar changes |
+| `Enter` | complete a selected task; from week/month opens that day |
+
+Day view shows all 24 hours. Untimed tasks are all-day items; add a time range
+while creating one (`a`) or schedule it later with `s`. Classes, events, and
+timed tasks share the ordered timeline in separate Google Calendar-style colors.
+Overlapping items each get their own colored branch row. Select an item and use
+`dd` to delete it; Yedion entries are hidden locally and can be restored with
+`u` (redo with `Ctrl+r`).
+
+Course meetings, exams, and other academic entries come from your private Yedion
+iCalendar feed. TaskVim refreshes it on startup and with `r` in the calendar;
+the last successful copy is cached locally for offline use. The feed URL is
+kept outside the repository in `~/.config/taskvim/yedion.ics-url`.
 
 ### Inside a course (the modal)
 | key | action |

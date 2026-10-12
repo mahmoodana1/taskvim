@@ -18,6 +18,11 @@ pub struct Task {
     pub section: Option<u64>,
     #[serde(default)]
     pub due: Option<String>, // YYYY-MM-DD
+    /// Optional calendar time range for tasks with a scheduled slot.
+    #[serde(default)]
+    pub start_time: Option<String>,
+    #[serde(default)]
+    pub end_time: Option<String>,
     #[serde(default)]
     pub completed: bool,
     #[serde(default)]
@@ -136,6 +141,15 @@ pub struct LogEntry {
     pub task: Option<u64>,
 }
 
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+pub struct CalendarEvent {
+    pub id: u64,
+    pub date: String,
+    pub title: String,
+    pub start_time: String,
+    pub end_time: String,
+}
+
 /// How many colours courses cycle through when assigned automatically.
 /// Must match the length of the UI palette in `ui::theme::PALETTE`.
 pub const COLOR_COUNT: usize = 6;
@@ -152,6 +166,11 @@ pub struct Data {
     /// Ordered ids of tasks shown on the main dashboard ("pinned"/linked tasks).
     #[serde(default)]
     pub dashboard: Vec<u64>,
+    #[serde(default)]
+    pub calendar_events: Vec<CalendarEvent>,
+    /// Yedion feed entries hidden locally by the user.
+    #[serde(default)]
+    pub calendar_hidden_feed: Vec<String>,
     pub daily_goal: u32,
     pub next_id: u64,
     pub next_color: usize,
@@ -219,6 +238,17 @@ impl Data {
             self.version = 4;
         }
 
+        // v5: scheduled task times and standalone calendar events are optional,
+        // so existing task files gain them without a destructive migration.
+        if self.version < 5 {
+            self.version = 5;
+        }
+
+        // v6: locally hidden entries from the read-only Yedion calendar feed.
+        if self.version < 6 {
+            self.version = 6;
+        }
+
         let mut seen = HashSet::new();
         self.projects.retain(|p| seen.insert(p.id));
         seen.clear();
@@ -255,6 +285,7 @@ impl Data {
             .chain(self.sections.iter().map(|s| s.id))
             .chain(self.tasks.iter().map(|t| t.id))
             .chain(self.log.iter().map(|l| l.id))
+            .chain(self.calendar_events.iter().map(|e| e.id))
             .max()
             .unwrap_or(0);
         if self.next_id <= max_id {
@@ -299,7 +330,7 @@ mod tests {
         d.sanitize();
 
         assert_eq!(
-            d.version, 4,
+            d.version, 6,
             "migration runs all the way to the current version"
         );
         assert_eq!(d.tasks.len(), 1);
@@ -317,7 +348,7 @@ mod tests {
         let s = serde_json::to_string(&d).unwrap();
         let back: Data = serde_json::from_str(&s).unwrap();
         assert_eq!(back.log[0].task, Some(1));
-        assert_eq!(back.version, 4);
+        assert_eq!(back.version, 6);
     }
 
     #[test]
@@ -325,7 +356,7 @@ mod tests {
         let mut d: Data = serde_json::from_str(v2_json()).expect("v2 json parses");
         d.sanitize();
 
-        assert_eq!(d.version, 4);
+        assert_eq!(d.version, 6);
         assert_eq!(d.tasks.len(), 1);
         assert!(!d.tasks[0].relink, "nothing is pending a re-link");
     }
@@ -346,7 +377,7 @@ mod tests {
         let back: Data = serde_json::from_str(&s).unwrap();
         assert!(back.projects[0].archived);
         assert!(back.tasks[0].relink);
-        assert_eq!(back.version, 4);
+        assert_eq!(back.version, 6);
     }
 
     #[test]

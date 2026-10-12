@@ -43,6 +43,8 @@ impl App {
             project,
             section,
             due,
+            start_time: None,
+            end_time: None,
             completed: false,
             dash_section: crate::model::DashSection::default(),
             repeat: None,
@@ -468,6 +470,87 @@ impl App {
                     );
                 }
             }
+            InsertTarget::CalendarTask { due } => {
+                let (input, time_range) = crate::calendar::strip_time_range(&buf);
+                let p = crate::parse::parse_task_input(&self.data.projects, &input);
+                let section = p.section.unwrap_or(DashSection::General);
+                let repeat = p.repeat;
+                if let Some(id) = self.add_task(p.text, p.project, None, p.due.or(Some(due)), true)
+                {
+                    if let Some(task) = self.data.tasks.iter_mut().find(|t| t.id == id) {
+                        task.dash_section = section;
+                        if let Some((start, end)) = time_range {
+                            task.start_time = Some(start);
+                            task.end_time = Some(end);
+                        }
+                    }
+                    if let Some(repeat) = repeat {
+                        self.set_repeat(id, Some(repeat));
+                    }
+                    self.status = String::from("calendar task added · linked to TaskVim");
+                } else {
+                    self.status = String::from("give the task a name");
+                }
+            }
+            InsertTarget::CalendarTaskTime { task } => {
+                let input = buf.trim();
+                if input.eq_ignore_ascii_case("none") || input.is_empty() {
+                    self.set_task_time(task, None);
+                } else if let Some((start, end)) = crate::calendar::parse_time_range(input) {
+                    self.set_task_time(task, Some((start, end)));
+                } else {
+                    self.status = String::from("use HH:MM-HH:MM, for example 09:00-10:30 or none");
+                }
+            }
+            InsertTarget::CalendarEvent { date } => {
+                if let Some((title, start, end)) = crate::calendar::parse_event_input(&buf) {
+                    let id = self.data.new_id();
+                    self.data.calendar_events.push(crate::model::CalendarEvent {
+                        id,
+                        date,
+                        title,
+                        start_time: start,
+                        end_time: end,
+                    });
+                    self.status = String::from("calendar event added");
+                    self.save_quiet();
+                } else {
+                    self.status = String::from("use Event title 09:00-10:30");
+                }
+            }
+            InsertTarget::CalendarEventTime { event } => {
+                if let Some((start, end)) = crate::calendar::parse_time_range(buf.trim()) {
+                    if let Some(item) = self
+                        .data
+                        .calendar_events
+                        .iter_mut()
+                        .find(|item| item.id == event)
+                    {
+                        item.start_time = start;
+                        item.end_time = end;
+                        self.status = String::from("event time updated");
+                        self.save_quiet();
+                    }
+                    if self.view == View::Calendar {
+                        let all_day =
+                            crate::calendar::all_day_tasks_on(&self.data.tasks, self.calendar_date);
+                        if let Some(pos) = crate::calendar::agenda_on(
+                            &self.data.tasks,
+                            &self.data.calendar_events,
+                            &self.calendar_feed,
+                            &self.data.calendar_hidden_feed,
+                            self.calendar_date,
+                        )
+                        .iter()
+                        .position(|item| matches!(item, crate::calendar::AgendaItem::Event(e) if e.id == event))
+                        {
+                            self.calendar_sel = all_day.len() + pos;
+                        }
+                    }
+                } else {
+                    self.status = String::from("use HH:MM-HH:MM, for example 09:00-10:30");
+                }
+            }
             InsertTarget::CourseTask { project, section } => {
                 let (text, due) = self.parse_due_suffix(&buf);
                 if let Some(id) = self.add_task(text, Some(project), section, due, false) {
@@ -519,6 +602,41 @@ impl App {
                         self.save_quiet();
                     }
                 }
+            }
+        }
+    }
+
+    pub fn set_task_time(&mut self, task: u64, range: Option<(String, String)>) {
+        if let Some(t) = self.data.tasks.iter_mut().find(|t| t.id == task) {
+            match range {
+                Some((start, end)) => {
+                    t.start_time = Some(start);
+                    t.end_time = Some(end);
+                    self.status = String::from("task time updated");
+                }
+                None => {
+                    t.start_time = None;
+                    t.end_time = None;
+                    self.status = String::from("task time cleared");
+                }
+            }
+            self.save_quiet();
+        }
+        if self.view == View::Calendar {
+            let all_day = crate::calendar::all_day_tasks_on(&self.data.tasks, self.calendar_date);
+            if let Some(pos) = all_day.iter().position(|item| item.id == task) {
+                self.calendar_sel = pos;
+            } else if let Some(pos) = crate::calendar::agenda_on(
+                &self.data.tasks,
+                &self.data.calendar_events,
+                &self.calendar_feed,
+                &self.data.calendar_hidden_feed,
+                self.calendar_date,
+            )
+            .iter()
+            .position(|item| item.task_id() == Some(task))
+            {
+                self.calendar_sel = all_day.len() + pos;
             }
         }
     }

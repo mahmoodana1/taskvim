@@ -10,6 +10,7 @@ mod tests;
 use std::collections::HashMap;
 
 use chrono::{Datelike, Local, NaiveDate};
+use rand::Rng;
 
 use crate::model::{DashSection, Data, LogEntry, Project, Section, Task};
 
@@ -22,11 +23,19 @@ pub enum Pane {
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum View {
     Dashboard,
+    Calendar,
     Course,   // modal over the dashboard; cur_course holds the project id
     Archived, // modal over the dashboard listing archived courses
     Log,
     DayLog, // view for a specific day's contributions
     Help,
+}
+
+#[derive(PartialEq, Clone, Copy, Debug)]
+pub enum CalendarMode {
+    Day,
+    Week,
+    Month,
 }
 
 /// A row inside the course modal (sections interleaved with their tasks).
@@ -67,6 +76,10 @@ impl DashRow {
 #[derive(PartialEq, Clone)]
 pub enum InsertTarget {
     DashTask,
+    CalendarTask { due: String },
+    CalendarTaskTime { task: u64 },
+    CalendarEvent { date: String },
+    CalendarEventTime { event: u64 },
     CourseTask { project: u64, section: Option<u64> },
     Course,
     Section { project: u64 },
@@ -100,6 +113,11 @@ pub struct App {
     pub day_sel: usize,                // selected day in day log view
     pub selected_date: Option<String>, // YYYY-MM-DD format for day view
     pub year: i32,
+    pub calendar_mode: CalendarMode,
+    pub calendar_date: NaiveDate,
+    pub calendar_sel: usize,
+    pub calendar_palette_base: usize,
+    pub calendar_feed: Vec<crate::calendar::Class>,
     pub pending: Option<char>, // gg / dd
     pub status: String,
     pub quit: bool,
@@ -112,6 +130,9 @@ pub struct App {
     /// The date `tick()` was last run for; the run loop compares this against
     /// today to catch midnight rollovers while the app sits open.
     pub last_tick: NaiveDate,
+    /// A Yedion fetch running in the background; its feed replaces
+    /// `calendar_feed` when it lands.
+    pub feed_refresh: Option<std::sync::mpsc::Receiver<Vec<crate::calendar::Class>>>,
 }
 
 pub const UNDO_HISTORY_LIMIT: usize = 100;
@@ -119,8 +140,38 @@ pub const UNDO_HISTORY_LIMIT: usize = 100;
 impl App {
     pub fn new() -> App {
         let mut app = App::with_data(Data::load());
+        // Draw from the cached feed at once; the network refresh catches up.
+        app.calendar_feed = crate::calendar::load_cached();
+        app.feed_refresh = Some(crate::calendar::refresh_in_background());
         app.tick();
         app
+    }
+
+    /// Swap in a background-fetched feed if one has arrived. Returns true when
+    /// the feed changed, so the caller knows to redraw.
+    pub fn poll_feed(&mut self) -> bool {
+        let Some(rx) = &self.feed_refresh else {
+            return false;
+        };
+        match rx.try_recv() {
+            Ok(feed) => {
+                let manual = self.status.starts_with("refreshing Yedion");
+                self.calendar_feed = feed;
+                self.feed_refresh = None;
+                if manual {
+                    self.status = format!("Yedion calendar refreshed · {} items", self.calendar_feed.len());
+                }
+                true
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                if self.status.starts_with("refreshing Yedion") {
+                    self.status = String::from("Yedion refresh failed · showing cached calendar");
+                }
+                self.feed_refresh = None;
+                false
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => false,
+        }
     }
 
     /// Build an App around already-loaded data. Used by `new()` and by tests.
@@ -140,6 +191,13 @@ impl App {
             day_sel: 0,
             selected_date: None,
             year: Local::now().year(),
+            calendar_mode: CalendarMode::Week,
+            calendar_date: Local::now().date_naive(),
+            calendar_sel: 0,
+            // Keep calendar accents in the calmer blue / cyan / green part of
+            // TaskVim's palette; the value is only the starting offset.
+            calendar_palette_base: rand::thread_rng().gen_range(0..3),
+            calendar_feed: Vec::new(),
             pending: None,
             status: String::from("taskvim ready — ? help · ⏎ on a course opens it · : commands"),
             quit: false,
@@ -147,6 +205,7 @@ impl App {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             last_tick: Local::now().date_naive(),
+            feed_refresh: None,
         }
     }
 

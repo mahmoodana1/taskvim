@@ -9,7 +9,7 @@ use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
 use ratatui::Frame;
 
 use crate::app::{App, InsertTarget, Mode, View};
-use crate::ui::theme::{ACCENT, DIM};
+use crate::ui::theme::{DIM, TEXT};
 
 pub fn draw_statusbar(f: &mut Frame, app: &App, area: Rect) {
     let line = match &app.mode {
@@ -48,14 +48,12 @@ pub fn draw_statusbar(f: &mut Frame, app: &App, area: Rect) {
                 View::DayLog => " DAY LOG ",
                 View::Help => " HELP ",
                 View::Dashboard => " NORMAL ",
+                View::Calendar => " CALENDAR ",
             };
             Line::from(vec![
                 Span::styled(
-                    mode_tag,
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(ACCENT)
-                        .add_modifier(Modifier::BOLD),
+                    mode_tag.to_lowercase(),
+                    Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(format!(" {}{}", app.status, pend), Style::default().fg(DIM)),
             ])
@@ -67,6 +65,10 @@ pub fn draw_statusbar(f: &mut Frame, app: &App, area: Rect) {
 pub fn draw_input_popup(f: &mut Frame, target: &InsertTarget, buf: &str) {
     let title = match target {
         InsertTarget::DashTask => " New task  (…text @course !due) ",
+        InsertTarget::CalendarTask { .. } => " New task  (…text @course !due HH:MM-HH:MM) ",
+        InsertTarget::CalendarTaskTime { .. } => " Schedule task  (HH:MM-HH:MM · none clears) ",
+        InsertTarget::CalendarEvent { .. } => " New event  (title HH:MM-HH:MM) ",
+        InsertTarget::CalendarEventTime { .. } => " Event time  (HH:MM-HH:MM) ",
         InsertTarget::CourseTask { .. } => " New task in course  (…text !due) ",
         InsertTarget::Course => " New course / project ",
         InsertTarget::Section { .. } => " New section (subtitle) ",

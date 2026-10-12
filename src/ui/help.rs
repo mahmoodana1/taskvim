@@ -33,6 +33,7 @@ pub fn draw_help(f: &mut Frame, area: Rect) {
     };
     let lines = vec![
         hdr("MOTIONS (everywhere)"),
+        key("Shift+C / Shift+T", "open Calendar / return to Tasks"),
         key("j k gg G", "move · jump to top / bottom"),
         key("h l Tab", "switch pane · Tab in a course = next course"),
         key("J / K", "reorder task / section"),
@@ -54,6 +55,10 @@ pub fn draw_help(f: &mut Frame, area: Rect) {
         key("t / e", "set due date · rename"),
         key("+ -  [ ]", "daily goal · heatmap year"),
         key("o", "open history log"),
+        key(
+            "Calendar",
+            "d/w/m views · 24-hour day · dd delete selected item · u undo · Ctrl-R redo",
+        ),
         key("x / X", "archive the selected course · open the archive"),
         key(
             "u / Ctrl-R",

@@ -27,6 +27,8 @@ pub fn task(id: u64, text: &str) -> Task {
         project: None,
         section: None,
         due: None,
+        start_time: None,
+        end_time: None,
         completed: false,
         dash_section: crate::model::DashSection::General,
         repeat: None,

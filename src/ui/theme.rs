@@ -3,23 +3,101 @@
 
 use chrono::{Duration as CDuration, Local, NaiveDate};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::Span;
+use ratatui::layout::Rect;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+use ratatui::Frame;
 
 use crate::model::{DashSection, Repeat};
 
-// Length must stay in sync with `model::COLOR_COUNT`.
+// Plain black glass: neutral greys with no blue or purple cast for chrome,
+// soft pastels only for content. Shared by every view.
+pub const TEXT: Color = Color::Rgb(222, 222, 222);
+pub const SUB: Color = Color::Rgb(150, 150, 150);
+pub const MUTED: Color = Color::Rgb(96, 96, 96);
+pub const FAINT: Color = Color::Rgb(44, 44, 44);
+pub const WARM: Color = Color::Rgb(250, 179, 135);
+pub const ROSE: Color = Color::Rgb(235, 160, 172);
+pub const SAND: Color = Color::Rgb(249, 226, 175);
+pub const GREEN: Color = Color::Rgb(166, 227, 161);
+
+// Ordered so warm and cool alternate: neighbouring entries always land on
+// visibly different hues. Length must stay in sync with `model::COLOR_COUNT`.
 pub const PALETTE: [Color; 6] = [
-    Color::LightBlue,
-    Color::LightMagenta,
-    Color::LightGreen,
-    Color::LightYellow,
-    Color::LightRed,
-    Color::LightCyan,
+    Color::Rgb(137, 180, 250), // blue
+    WARM,                      // peach
+    Color::Rgb(148, 226, 213), // teal
+    ROSE,                      // rose
+    GREEN,                     // green
+    SAND,                      // sand
 ];
 
-pub const ACCENT: Color = Color::LightMagenta;
-pub const DIM: Color = Color::DarkGray;
-pub const SEL_BG: Color = Color::Rgb(45, 45, 65);
+pub const ACCENT: Color = TEXT;
+pub const DIM: Color = MUTED;
+pub const SEL_BG: Color = Color::Rgb(40, 40, 40);
+
+/// `key what   key what` — keys in grey, their meaning one step fainter.
+pub fn hints(pairs: &[(&str, &str)]) -> Line<'static> {
+    let mut spans = vec![];
+    for (i, (key, what)) in pairs.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::raw("   "));
+        }
+        spans.push(Span::styled(key.to_string(), Style::default().fg(SUB)));
+        spans.push(Span::styled(format!(" {}", what), Style::default().fg(MUTED)));
+    }
+    Line::from(spans)
+}
+
+/// A borderless panel: `title  extra ──────` on the top row, optional hints on
+/// the bottom row. Takes the same two rows a bordered block would, so panel
+/// heights stay as they were. Returns the content area between them.
+pub fn panel(
+    f: &mut Frame,
+    area: Rect,
+    title: &str,
+    extra: &str,
+    hint: Option<Line<'static>>,
+    active: bool,
+) -> Rect {
+    if area.height == 0 {
+        return area;
+    }
+    let (title_style, rule_color) = if active {
+        (Style::default().fg(TEXT).add_modifier(Modifier::BOLD), SUB)
+    } else {
+        (Style::default().fg(SUB), FAINT)
+    };
+    let used = title.chars().count() + if extra.is_empty() { 0 } else { extra.chars().count() + 2 } + 1;
+    let mut head = vec![Span::styled(title.to_string(), title_style)];
+    if !extra.is_empty() {
+        head.push(Span::styled(format!("  {}", extra), Style::default().fg(MUTED)));
+    }
+    head.push(Span::raw(" "));
+    head.push(Span::styled(
+        "─".repeat((area.width as usize).saturating_sub(used)),
+        Style::default().fg(rule_color),
+    ));
+    f.render_widget(Paragraph::new(Line::from(head)), Rect { height: 1, ..area });
+
+    let mut inner = Rect {
+        y: area.y + 1,
+        height: area.height - 1,
+        ..area
+    };
+    if let Some(hint) = hint {
+        if inner.height >= 2 {
+            inner.height -= 1;
+            let row = Rect {
+                y: inner.y + inner.height,
+                height: 1,
+                ..inner
+            };
+            f.render_widget(Paragraph::new(hint), row);
+        }
+    }
+    inner
+}
 
 pub fn palette(idx: usize) -> Color {
     PALETTE[idx % PALETTE.len()]
@@ -31,9 +109,9 @@ pub fn palette(idx: usize) -> Color {
 /// glyph.
 pub fn section_color(sec: DashSection) -> Color {
     match sec {
-        DashSection::Important => Color::LightRed,
-        DashSection::General => Color::LightBlue,
-        DashSection::Agent => Color::LightMagenta,
+        DashSection::Important => ROSE,
+        DashSection::General => PALETTE[0],
+        DashSection::Agent => PALETTE[2],
     }
 }
 
@@ -43,20 +121,12 @@ pub fn due_span(due: &Option<String>) -> Option<Span<'static>> {
     let (txt, style) = if d < today {
         (
             format!("  ⚠ was due {}", d.format("%b %d")),
-            Style::default()
-                .fg(Color::LightRed)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(ROSE),
         )
     } else if d == today {
-        (
-            String::from("  ● due today"),
-            Style::default().fg(Color::LightYellow),
-        )
+        (String::from("  ● due today"), Style::default().fg(WARM))
     } else if d == today + CDuration::days(1) {
-        (
-            String::from("  due tomorrow"),
-            Style::default().fg(Color::Yellow),
-        )
+        (String::from("  due tomorrow"), Style::default().fg(SAND))
     } else {
         (
             format!("  due {}", d.format("%b %d")),
@@ -111,4 +181,57 @@ pub fn fit_span(s: Span<'static>, max: usize) -> Span<'static> {
     }
     out.push('…');
     Span::styled(out, s.style)
+}
+
+pub fn is_rtl(c: char) -> bool {
+    matches!(c, '\u{0590}'..='\u{08FF}' | '\u{FB1D}'..='\u{FDFF}' | '\u{FE70}'..='\u{FEFF}')
+}
+
+/// Terminals draw one cell per char in logical order and do no bidi, so
+/// Hebrew/Arabic would come out mirrored. Reverse each right-to-left run
+/// (neutrals between two RTL chars included) so it reads correctly, and leave
+/// Latin text, digits and times untouched (left-to-right).
+pub fn visual(s: &str) -> String {
+    if !s.chars().any(is_rtl) {
+        return s.to_string();
+    }
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = Vec::with_capacity(chars.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if !is_rtl(chars[i]) {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        let mut end = i + 1;
+        let mut j = i + 1;
+        while j < chars.len() {
+            if is_rtl(chars[j]) {
+                end = j + 1;
+            } else if !(chars[j].is_whitespace() || matches!(chars[j], '-' | '\'' | '"' | '.' | ',' | '/')) {
+                break;
+            }
+            j += 1;
+        }
+        out.extend(chars[i..end].iter().rev());
+        i = end;
+    }
+    out.into_iter().collect()
+}
+
+#[cfg(test)]
+mod visual_tests {
+    use super::visual;
+
+    #[test]
+    fn latin_untouched() {
+        assert_eq!(visual("CS101 09:00-10:30"), "CS101 09:00-10:30");
+    }
+
+    #[test]
+    fn hebrew_run_reversed_digits_kept() {
+        assert_eq!(visual("שלום עולם 10:00"), "םלוע םולש 10:00");
+        assert_eq!(visual("Math מתמטיקה"), "Math הקיטמתמ");
+    }
 }

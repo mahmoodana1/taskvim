@@ -1,10 +1,10 @@
 //! Keyboard input: the top-level dispatch plus the per-view handlers
 //! and ex-commands.
 
-use chrono::{Datelike, Local};
+use chrono::{Datelike, Duration as CDuration, Local, Months};
 use crossterm::event::{KeyCode, KeyModifiers};
 
-use crate::app::{App, InsertTarget, Mode, Pane, Row, View};
+use crate::app::{App, CalendarMode, InsertTarget, Mode, Pane, Row, View};
 use crate::model::{DashSection, Data, Repeat, RepeatUnit};
 
 impl App {
@@ -18,6 +18,21 @@ impl App {
                 self.redo();
             }
             return;
+        }
+        if matches!(self.mode, Mode::Normal) && mods.contains(KeyModifiers::SHIFT) {
+            match code {
+                KeyCode::Char('C') => {
+                    self.view = View::Calendar;
+                    self.pending = None;
+                    return;
+                }
+                KeyCode::Char('T') => {
+                    self.view = View::Dashboard;
+                    self.pending = None;
+                    return;
+                }
+                _ => {}
+            }
         }
         match self.mode.clone() {
             Mode::Insert(target, mut buf) => match code {
@@ -70,9 +85,232 @@ impl App {
                     View::Course => self.handle_course(code, pend),
                     View::Archived => self.handle_archived(code, pend),
                     View::Dashboard => self.handle_dashboard(code, pend),
+                    View::Calendar => self.handle_calendar(code, pend),
                 }
             }
         }
+    }
+
+    fn handle_calendar(&mut self, code: KeyCode, pend: Option<char>) {
+        match code {
+            KeyCode::Char('d') => {
+                if pend == Some('d') {
+                    if self.calendar_mode == CalendarMode::Day {
+                        self.delete_calendar_selection();
+                    } else {
+                        self.status = String::from("open a day, select an item, then dd to delete");
+                    }
+                } else {
+                    if self.calendar_mode != CalendarMode::Day {
+                        self.calendar_mode = CalendarMode::Day;
+                        self.calendar_sel = 0;
+                    }
+                    self.pending = Some('d');
+                }
+            }
+            KeyCode::Char('w') => {
+                self.calendar_mode = CalendarMode::Week;
+                self.calendar_sel = 0;
+            }
+            KeyCode::Char('m') => {
+                self.calendar_mode = CalendarMode::Month;
+                self.calendar_sel = 0;
+            }
+            KeyCode::Char('t') => {
+                self.calendar_date = Local::now().date_naive();
+                self.calendar_sel = 0;
+            }
+            KeyCode::Char('h') | KeyCode::Left => self.calendar_date -= CDuration::days(1),
+            KeyCode::Char('l') | KeyCode::Right => self.calendar_date += CDuration::days(1),
+            KeyCode::Char('[') => {
+                self.calendar_date = self
+                    .calendar_date
+                    .checked_sub_months(Months::new(1))
+                    .unwrap_or(self.calendar_date)
+            }
+            KeyCode::Char(']') => {
+                self.calendar_date = self
+                    .calendar_date
+                    .checked_add_months(Months::new(1))
+                    .unwrap_or(self.calendar_date)
+            }
+            KeyCode::Char('j') | KeyCode::Down => match self.calendar_mode {
+                CalendarMode::Day => {
+                    let count =
+                        crate::calendar::all_day_tasks_on(&self.data.tasks, self.calendar_date)
+                            .len()
+                            + crate::calendar::agenda_on(
+                                &self.data.tasks,
+                                &self.data.calendar_events,
+                                &self.calendar_feed,
+                                &self.data.calendar_hidden_feed,
+                                self.calendar_date,
+                            )
+                            .len();
+                    if self.calendar_sel + 1 < count {
+                        self.calendar_sel += 1;
+                    }
+                }
+                _ => self.calendar_date += CDuration::days(7),
+            },
+            KeyCode::Char('k') | KeyCode::Up => match self.calendar_mode {
+                CalendarMode::Day => self.calendar_sel = self.calendar_sel.saturating_sub(1),
+                _ => self.calendar_date -= CDuration::days(7),
+            },
+            KeyCode::Char('a') | KeyCode::Char('A') => {
+                let due = self.calendar_date.format("%Y-%m-%d").to_string();
+                self.mode = Mode::Insert(InsertTarget::CalendarTask { due }, String::new());
+            }
+            KeyCode::Char('e') => {
+                let date = self.calendar_date.format("%Y-%m-%d").to_string();
+                self.mode = Mode::Insert(InsertTarget::CalendarEvent { date }, String::new());
+            }
+            KeyCode::Char('r') => self.feed_refresh = Some(crate::calendar::refresh_in_background()),
+            KeyCode::Char('u') => self.undo(),
+            KeyCode::Char('s') if self.calendar_mode == CalendarMode::Day => {
+                let all_day =
+                    crate::calendar::all_day_tasks_on(&self.data.tasks, self.calendar_date);
+                if let Some(task) = all_day.get(self.calendar_sel) {
+                    let prefill = match (&task.start_time, &task.end_time) {
+                        (Some(start), Some(end)) => format!("{}-{}", start, end),
+                        _ => String::new(),
+                    };
+                    self.mode =
+                        Mode::Insert(InsertTarget::CalendarTaskTime { task: task.id }, prefill);
+                } else {
+                    let agenda = crate::calendar::agenda_on(
+                        &self.data.tasks,
+                        &self.data.calendar_events,
+                        &self.calendar_feed,
+                        &self.data.calendar_hidden_feed,
+                        self.calendar_date,
+                    );
+                    let item = agenda.get(self.calendar_sel - all_day.len());
+                    match item {
+                        Some(crate::calendar::AgendaItem::Task { id, .. }) => {
+                            let prefill = self
+                                .task(*id)
+                                .and_then(|task| match (&task.start_time, &task.end_time) {
+                                    (Some(start), Some(end)) => Some(format!("{}-{}", start, end)),
+                                    _ => None,
+                                })
+                                .unwrap_or_default();
+                            self.mode =
+                                Mode::Insert(InsertTarget::CalendarTaskTime { task: *id }, prefill);
+                        }
+                        Some(crate::calendar::AgendaItem::Event(event)) => {
+                            let prefill = format!("{}-{}", event.start_time, event.end_time);
+                            self.mode = Mode::Insert(
+                                InsertTarget::CalendarEventTime { event: event.id },
+                                prefill,
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            KeyCode::Enter | KeyCode::Char(' ') if self.calendar_mode != CalendarMode::Day => {
+                self.calendar_mode = CalendarMode::Day;
+                self.calendar_sel = 0;
+            }
+            KeyCode::Enter | KeyCode::Char(' ') if self.calendar_mode == CalendarMode::Day => {
+                let all_day =
+                    crate::calendar::all_day_tasks_on(&self.data.tasks, self.calendar_date);
+                let selected = if self.calendar_sel < all_day.len() {
+                    all_day.get(self.calendar_sel).map(|task| task.id)
+                } else {
+                    crate::calendar::agenda_on(
+                        &self.data.tasks,
+                        &self.data.calendar_events,
+                        &self.calendar_feed,
+                        &self.data.calendar_hidden_feed,
+                        self.calendar_date,
+                    )
+                    .get(self.calendar_sel - all_day.len())
+                    .and_then(|item| item.task_id())
+                };
+                if let Some(task) = selected {
+                    self.toggle_complete(task);
+                }
+            }
+            KeyCode::Char('?') => self.view = View::Help,
+            KeyCode::Char('q') | KeyCode::Esc => self.view = View::Dashboard,
+            KeyCode::Char(':') => self.mode = Mode::Command(String::new()),
+            _ => {}
+        }
+        if self.view == View::Calendar && !matches!(code, KeyCode::Enter | KeyCode::Char(' ')) {
+            self.status = if code == KeyCode::Char('r') {
+                String::from("refreshing Yedion calendar…")
+            } else {
+                match self.calendar_mode {
+                CalendarMode::Day => String::from(
+                    "calendar day · h/l date · j/k select · a task · e event · s schedule · r refresh",
+                ),
+                CalendarMode::Week => {
+                    String::from("calendar week · h/l day · j/k week · Enter day · e event · r refresh")
+                }
+                CalendarMode::Month => {
+                    String::from("calendar month · h/l day · j/k week · [/] month · e event · r refresh")
+                }
+                }
+            };
+        }
+    }
+
+    fn delete_calendar_selection(&mut self) {
+        let all_day = crate::calendar::all_day_tasks_on(&self.data.tasks, self.calendar_date);
+        let selected = if self.calendar_sel < all_day.len() {
+            all_day
+                .get(self.calendar_sel)
+                .map(|task| crate::calendar::AgendaItem::Task {
+                    id: task.id,
+                    text: task.text.clone(),
+                    start: String::new(),
+                    end: String::new(),
+                })
+        } else {
+            crate::calendar::agenda_on(
+                &self.data.tasks,
+                &self.data.calendar_events,
+                &self.calendar_feed,
+                &self.data.calendar_hidden_feed,
+                self.calendar_date,
+            )
+            .get(self.calendar_sel.saturating_sub(all_day.len()))
+            .cloned()
+        };
+
+        match selected {
+            Some(crate::calendar::AgendaItem::Task { id, .. }) => self.delete_task(id),
+            Some(crate::calendar::AgendaItem::Event(event)) => {
+                self.data.calendar_events.retain(|item| item.id != event.id);
+                self.status = format!("deleted event: {}", event.title);
+                self.save_quiet();
+            }
+            Some(crate::calendar::AgendaItem::Class(class)) if !class.id.is_empty() => {
+                if !self.data.calendar_hidden_feed.contains(&class.id) {
+                    self.data.calendar_hidden_feed.push(class.id);
+                }
+                self.status = format!("hid Yedion item locally: {}", class.title);
+                self.save_quiet();
+            }
+            Some(crate::calendar::AgendaItem::Class(_)) => {
+                self.status = String::from("this feed item has no ID and cannot be hidden");
+            }
+            None => self.status = String::from("no calendar item selected"),
+        }
+
+        let remaining = crate::calendar::all_day_tasks_on(&self.data.tasks, self.calendar_date)
+            .len()
+            + crate::calendar::agenda_on(
+                &self.data.tasks,
+                &self.data.calendar_events,
+                &self.calendar_feed,
+                &self.data.calendar_hidden_feed,
+                self.calendar_date,
+            )
+            .len();
+        self.calendar_sel = self.calendar_sel.min(remaining.saturating_sub(1));
     }
 
     fn handle_due_menu(&mut self, task: u64, code: KeyCode) {

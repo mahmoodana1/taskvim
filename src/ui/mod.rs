@@ -1,6 +1,7 @@
 //! Top-level frame layout: dispatches to the per-view draw functions and
 //! overlays the status bar and any active modal.
 
+pub mod calendar;
 pub mod courses;
 pub mod dashboard;
 pub mod heatmap;
@@ -13,6 +14,7 @@ use ratatui::layout::{Constraint, Layout};
 use ratatui::Frame;
 
 use crate::app::{App, Mode, View};
+use crate::ui::calendar::draw_calendar;
 use crate::ui::courses::{draw_archived_modal, draw_course_modal};
 use crate::ui::dashboard::draw_dashboard;
 use crate::ui::help::draw_help;
@@ -29,6 +31,7 @@ pub fn ui(f: &mut Frame, app: &App) {
         View::Log => draw_log(f, app, body),
         View::DayLog => draw_daylog(f, app, body),
         View::Dashboard => draw_dashboard(f, app, body),
+        View::Calendar => draw_calendar(f, app, body),
         View::Course => {
             draw_dashboard(f, app, body);
             draw_course_modal(f, app, body);

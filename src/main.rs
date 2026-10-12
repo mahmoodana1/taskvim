@@ -22,6 +22,7 @@ use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::DefaultTerminal;
 
 mod app;
+mod calendar;
 mod due;
 mod model;
 mod parse;
@@ -39,6 +40,9 @@ fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
         if today != app.last_tick {
             app.last_tick = today;
             app.tick();
+        }
+        if app.poll_feed() {
+            continue;
         }
         if event::poll(Duration::from_millis(400))? {
             if let Event::Key(k) = event::read()? {
