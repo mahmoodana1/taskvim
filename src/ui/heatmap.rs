@@ -4,28 +4,17 @@
 use std::collections::HashSet;
 
 use chrono::{Datelike, Duration as CDuration, Local, NaiveDate};
-use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Gauge, Padding, Paragraph, Wrap};
+use ratatui::widgets::{Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::app::App;
-use crate::ui::theme::{due_span, ACCENT, DIM};
+use crate::ui::theme::{due_span, hints, panel, DIM, FAINT, GREEN, MUTED, SAND, SUB, TEXT, WARM};
 
 pub fn draw_priority(f: &mut Frame, app: &App, area: Rect) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(ACCENT))
-        .title(Span::styled(
-            " NOW ",
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-        ))
-        .title_bottom(Line::from(Span::styled(
-            " c: complete ",
-            Style::default().fg(DIM),
-        )))
-        .padding(Padding::horizontal(1));
+    let inner = panel(f, area, "now", "", Some(hints(&[("c", "complete")])), false);
 
     let first = app.dash_ids().first().and_then(|id| app.task(*id));
     let lines = match first {
@@ -39,7 +28,7 @@ pub fn draw_priority(f: &mut Frame, app: &App, area: Rect) {
             };
             let mut title_spans = vec![Span::styled(
                 name,
-                Style::default().add_modifier(Modifier::BOLD),
+                Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
             )];
             if let Some(s) = due_span(&t.due) {
                 title_spans.push(s);
@@ -51,7 +40,7 @@ pub fn draw_priority(f: &mut Frame, app: &App, area: Rect) {
         // One line, so the panel is the same height whether or not there is a
         // task in it and the rail below never shifts.
         None => vec![Line::from(vec![
-            Span::styled("all clear ✓", Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled("all clear ✓", Style::default().fg(GREEN)),
             Span::styled(
                 "   ⏎ a course, then p to link one here",
                 Style::default().fg(DIM),
@@ -59,66 +48,33 @@ pub fn draw_priority(f: &mut Frame, app: &App, area: Rect) {
         ])],
     };
 
-    f.render_widget(
-        Paragraph::new(lines).wrap(Wrap { trim: true }).block(block),
-        area,
-    );
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
 }
 
 pub fn draw_daily_goal(f: &mut Frame, app: &App, area: Rect) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(DIM))
-        .title(Span::styled(
-            " GOAL ",
-            Style::default().add_modifier(Modifier::BOLD),
-        ))
-        .title_bottom(Line::from(Span::styled(
-            " +/- adjust ",
-            Style::default().fg(DIM),
-        )))
-        .padding(Padding::horizontal(1));
-    let inner = block.inner(area);
-    f.render_widget(block, area);
+    let inner = panel(f, area, "goal", "", Some(hints(&[("+/-", "adjust")])), false);
 
     let done = app.today_count();
     let goal = app.data.daily_goal.max(1);
     let ratio = (done as f64 / goal as f64).min(1.0);
     let streak = app.streak();
 
-    // Two rows: the numbers, then the gauge. The streak rides on the numbers
-    // row rather than claiming one of its own.
-    let rows = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Min(0),
-    ])
-    .split(inner);
-
-    let pct = Line::from(vec![
+    // One row: count, a thin gauge filling the middle, streak on the right.
+    let count = format!("{}/{}  ", done, goal);
+    let streak_text = format!("  {} day streak", streak);
+    let width = (inner.width as usize)
+        .saturating_sub(count.chars().count() + streak_text.chars().count());
+    let filled = (ratio * width as f64).round() as usize;
+    let line = Line::from(vec![
+        Span::styled(count, Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+        Span::styled("━".repeat(filled), Style::default().fg(GREEN)),
+        Span::styled("─".repeat(width - filled), Style::default().fg(FAINT)),
         Span::styled(
-            format!("{:.0}% ", ratio * 100.0),
-            Style::default().add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(format!("{}/{}", done, goal), Style::default().fg(DIM)),
-        Span::raw("   "),
-        Span::styled(
-            format!("🔥 {} day streak", streak),
-            Style::default().fg(if streak > 0 { Color::LightYellow } else { DIM }),
+            streak_text,
+            Style::default().fg(if streak > 0 { WARM } else { MUTED }),
         ),
     ]);
-    f.render_widget(Paragraph::new(pct), rows[0]);
-
-    let gauge = Gauge::default()
-        .ratio(ratio)
-        .use_unicode(true)
-        .gauge_style(
-            Style::default()
-                .fg(Color::LightGreen)
-                .bg(Color::Rgb(40, 40, 55)),
-        )
-        .label("");
-    f.render_widget(gauge, rows[1]);
+    f.render_widget(Paragraph::new(line), inner);
 }
 
 /// A seven-column bar chart of the current week, Monday to Sunday, drawn as
@@ -129,16 +85,7 @@ pub fn draw_daily_goal(f: &mut Frame, app: &App, area: Rect) {
 pub fn draw_week(f: &mut Frame, app: &App, area: Rect) {
     const ROWS: u32 = 3;
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(DIM))
-        .title(Span::styled(
-            " THIS WEEK ",
-            Style::default().add_modifier(Modifier::BOLD),
-        ))
-        .padding(Padding::horizontal(1));
-    let inner = block.inner(area);
-    f.render_widget(block, area);
+    let inner = panel(f, area, "this week", "", None, false);
 
     let today = Local::now().date_naive();
     let monday = today - CDuration::days(today.weekday().num_days_from_monday() as i64);
@@ -158,16 +105,16 @@ pub fn draw_week(f: &mut Frame, app: &App, area: Rect) {
     // remain in step.
     let col = ((inner.width as usize).saturating_sub(2) / 7).clamp(5, 20);
     let bar_w = col.saturating_sub(2).max(1);
-    let bar = "█".repeat(bar_w);
+    let bar = "▆".repeat(bar_w);
     let gap = " ".repeat(bar_w);
 
     let bar_style = |c: u32| {
         if c >= goal {
-            Style::default().fg(Color::LightGreen)
+            Style::default().fg(GREEN)
         } else if c > 0 {
-            Style::default().fg(Color::Yellow)
+            Style::default().fg(SAND)
         } else {
-            Style::default().fg(DIM)
+            Style::default().fg(FAINT)
         }
     };
 
@@ -189,15 +136,13 @@ pub fn draw_week(f: &mut Frame, app: &App, area: Rect) {
 
     let mut labels = vec![Span::raw("  ")];
     for (d, c) in &week {
-        let name = d.format("%a").to_string();
+        let name = d.format("%a").to_string().to_lowercase();
         let style = if *d == today {
-            Style::default()
-                .fg(Color::LightCyan)
-                .add_modifier(Modifier::BOLD)
+            Style::default().fg(WARM).add_modifier(Modifier::BOLD)
         } else if *c > 0 {
-            Style::default()
+            Style::default().fg(SUB)
         } else {
-            Style::default().fg(DIM)
+            Style::default().fg(MUTED)
         };
         labels.push(Span::styled(
             format!("{:^width$}", name, width = col),
@@ -212,7 +157,7 @@ pub fn draw_week(f: &mut Frame, app: &App, area: Rect) {
     let mut summary = vec![
         Span::styled(
             format!("  {} done", done),
-            Style::default().add_modifier(Modifier::BOLD),
+            Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!("  ·  {:.1}/day", done as f64 / elapsed as f64),
@@ -230,11 +175,7 @@ pub fn draw_week(f: &mut Frame, app: &App, area: Rect) {
     let hit = week.iter().filter(|(_, c)| *c >= goal).count();
     summary.push(Span::styled(
         format!("  ·  goal hit {}/{}", hit, elapsed.min(7)),
-        Style::default().fg(if hit as u32 >= elapsed {
-            Color::LightGreen
-        } else {
-            DIM
-        }),
+        Style::default().fg(if hit as u32 >= elapsed { GREEN } else { DIM }),
     ));
     lines.push(Line::from(summary));
 
@@ -243,15 +184,16 @@ pub fn draw_week(f: &mut Frame, app: &App, area: Rect) {
 
 fn heat_cell(count: u32, is_today: bool, month: u32, is_month_start: bool) -> Span<'static> {
     // Alternate empty-cell tone by month to produce GitHub-style banding.
-    let dim_a = Color::Rgb(48, 50, 64);
-    let dim_b = Color::Rgb(72, 74, 92);
+    let dim_a = Color::Rgb(44, 44, 44);
+    let dim_b = Color::Rgb(66, 66, 66);
     let empty_color = if month % 2 == 0 { dim_a } else { dim_b };
     let (ch, color) = match count {
         0 => ("·", empty_color),
-        1 => ("■", Color::Rgb(60, 100, 60)),
-        2 => ("■", Color::Rgb(60, 150, 60)),
-        3 => ("■", Color::Rgb(80, 200, 80)),
-        _ => ("■", Color::Rgb(120, 255, 120)),
+        // Steps toward the shared pastel green rather than a neon ramp.
+        1 => ("■", Color::Rgb(70, 96, 70)),
+        2 => ("■", Color::Rgb(100, 140, 98)),
+        3 => ("■", Color::Rgb(133, 185, 129)),
+        _ => ("■", GREEN),
     };
     let mut style = Style::default().fg(color);
     if is_month_start {
@@ -312,7 +254,7 @@ pub fn draw_heatmap(f: &mut Frame, app: &App, area: Rect) {
                 let col = col_of_week(w);
                 if col >= cursor {
                     month_row.push(Span::raw(" ".repeat(col - cursor)));
-                    let label = first.format("%b").to_string();
+                    let label = first.format("%b").to_string().to_lowercase();
                     cursor = col + label.len();
                     month_row.push(Span::styled(label, Style::default().fg(DIM)));
                 }
@@ -323,16 +265,16 @@ pub fn draw_heatmap(f: &mut Frame, app: &App, area: Rect) {
     let mut lines: Vec<Line> = vec![Line::from(month_row)];
     for row in 0..7u32 {
         let gutter = match row {
-            0 => "Mon  ",
-            2 => "Wed  ",
-            4 => "Fri  ",
+            0 => "mon  ",
+            2 => "wed  ",
+            4 => "fri  ",
             _ => "     ",
         };
         let mut spans = vec![Span::styled(gutter, Style::default().fg(DIM))];
         for w in 0..weeks {
             if month_start_weeks.contains(&w) {
                 // Thin divider column that separates months.
-                spans.push(Span::styled("│", Style::default().fg(DIM)));
+                spans.push(Span::styled("│", Style::default().fg(FAINT)));
             }
             let day_index = w as i64 * 7 + row as i64 - offset;
             if day_index < 0 || day_index >= days_in_year {
@@ -359,7 +301,7 @@ pub fn draw_heatmap(f: &mut Frame, app: &App, area: Rect) {
                 },
                 year
             ),
-            Style::default().add_modifier(Modifier::BOLD),
+            Style::default().fg(SUB),
         ),
         Span::styled(
             format!(
@@ -378,16 +320,13 @@ pub fn draw_heatmap(f: &mut Frame, app: &App, area: Rect) {
         Span::styled(" more", Style::default().fg(DIM)),
     ]));
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(DIM))
-        .title(Span::styled(
-            format!(" ACTIVITY — {} ", year),
-            Style::default().add_modifier(Modifier::BOLD),
-        ))
-        .title_bottom(Line::from(Span::styled(
-            " [ / ] change year · o: history log · u: undo last ",
-            Style::default().fg(DIM),
-        )));
-    f.render_widget(Paragraph::new(lines).block(block), area);
+    let inner = panel(
+        f,
+        area,
+        "activity",
+        &year.to_string(),
+        Some(hints(&[("[/]", "year"), ("o", "history"), ("u", "undo last")])),
+        false,
+    );
+    f.render_widget(Paragraph::new(lines), inner);
 }

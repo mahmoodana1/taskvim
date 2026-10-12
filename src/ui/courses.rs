@@ -3,51 +3,55 @@
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Padding, Paragraph};
 use ratatui::Frame;
 
 use crate::app::{App, Pane, Row, View};
-use crate::ui::theme::{due_span, fit_span, palette, repeat_span, ACCENT, DIM, SEL_BG};
+use crate::ui::theme::{
+    due_span, fit_span, hints, palette, panel, repeat_span, DIM, FAINT, PALETTE, ROSE, SEL_BG, TEXT,
+};
 
 pub fn draw_courses(f: &mut Frame, app: &App, area: Rect) {
     let active = app.pane == Pane::Courses && app.view == View::Dashboard;
 
     let courses = app.visible_courses();
     let inner_h = area.height.saturating_sub(2) as usize;
-    let max_visible = inner_h / 2; // two rows per course
+    let max_visible = inner_h; // one row per course
                                    // "3 of 7 ▾" reads as "there is more below"; a bare count does not.
-    let title = if courses.len() > max_visible {
-        format!(" COURSES  {} of {} ▾ ", max_visible, courses.len())
+    let extra = if courses.len() > max_visible {
+        format!("{} of {} ▾", max_visible, courses.len())
     } else {
-        format!(" COURSES  {} ", courses.len())
+        courses.len().to_string()
     };
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(if active { ACCENT } else { DIM }))
-        .title(Span::styled(
-            title,
-            Style::default().add_modifier(Modifier::BOLD),
-        ))
-        .title_bottom(Line::from(Span::styled(
-            " ⏎:open a:new x:archive X:archived e:rename dd:delete ",
-            Style::default().fg(DIM),
-        )));
+    let hint = hints(&[
+        ("⏎", "open"),
+        ("a", "new"),
+        ("x", "archive"),
+        ("X", "archived"),
+        ("e", "rename"),
+        ("dd", "delete"),
+    ]);
+    let inner = panel(f, area, "courses", &extra, Some(hint), active);
 
     if app.visible_courses().is_empty() {
         f.render_widget(
             // No leading newline: the panel is sized to its content, so a
             // blank first line would push the message out of view entirely.
-            Paragraph::new(" no courses yet — press a to create one")
-                .style(Style::default().fg(DIM))
-                .block(block),
-            area,
+            Paragraph::new("no courses yet — press a to create one").style(Style::default().fg(DIM)),
+            inner,
         );
         return;
     }
 
-    let items: Vec<ListItem> = app
-        .visible_courses()
+    // Columns: bar + name, progress line, done/total, overdue. Every row
+    // shares the same column edges so the list reads as a table.
+    const BAR: usize = 12;
+    const COUNT: usize = 7; // "100/100"
+    const OVERDUE: usize = 5; // "  ⚠ 9"
+    let width = inner.width as usize;
+    let name_w = width.saturating_sub(2 + 2 + BAR + 2 + COUNT + OVERDUE + 1).max(6);
+
+    let items: Vec<ListItem> = courses
         .iter()
         .map(|p| {
             let (done, total) = app.project_stats(p.id);
@@ -58,40 +62,34 @@ pub fn draw_courses(f: &mut Frame, app: &App, area: Rect) {
                 done as f64 / total as f64
             };
             let color = palette(p.color);
-
-            let bar_w = 18usize;
-            let filled = (pct * bar_w as f64).round() as usize;
-            let bar: String = "█".repeat(filled) + &"─".repeat(bar_w.saturating_sub(filled));
-
-            let name_line = Line::from(vec![
-                Span::styled("  ● ", Style::default().fg(color)),
+            let filled = (pct * BAR as f64).round() as usize;
+            let name = fit_span(
+                Span::styled(p.name.clone(), Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+                name_w,
+            );
+            let name_pad = name_w.saturating_sub(name.width());
+            let mut spans = vec![
+                Span::styled("▌ ", Style::default().fg(color)),
+                name,
+                Span::raw(" ".repeat(name_pad + 2)),
+                Span::styled("━".repeat(filled), Style::default().fg(color)),
+                Span::styled("─".repeat(BAR - filled), Style::default().fg(FAINT)),
                 Span::styled(
-                    p.name.clone(),
-                    Style::default().fg(color).add_modifier(Modifier::BOLD),
+                    format!("  {:>width$}", format!("{}/{}", done, total), width = COUNT),
+                    Style::default().fg(DIM),
                 ),
-            ]);
-
-            let mut stats_spans = vec![
-                Span::styled("      ", Style::default()),
-                Span::styled(format!("{}/{}", done, total), Style::default().fg(DIM)),
-                Span::styled("  ", Style::default()),
-                Span::styled(bar, Style::default().fg(color)),
             ];
             if overdue > 0 {
-                stats_spans.push(Span::styled(
-                    format!("  ⚠{}", overdue),
-                    Style::default().fg(Color::LightRed),
+                spans.push(Span::styled(
+                    format!("{:>width$}", format!("⚠ {}", overdue), width = OVERDUE),
+                    Style::default().fg(ROSE),
                 ));
             }
-            let stats_line = Line::from(stats_spans);
-
-            ListItem::new(vec![name_line, stats_line])
+            ListItem::new(Line::from(spans))
         })
         .collect();
 
-    let list = List::new(items)
-        .block(block)
-        .highlight_style(Style::default().bg(SEL_BG).add_modifier(Modifier::BOLD));
+    let list = List::new(items).highlight_style(Style::default().bg(SEL_BG).add_modifier(Modifier::BOLD));
 
     let mut state = ListState::default();
     if active {
@@ -100,7 +98,25 @@ pub fn draw_courses(f: &mut Frame, app: &App, area: Rect) {
                 .min(app.visible_courses().len().saturating_sub(1)),
         ));
     }
-    f.render_stateful_widget(list, area, &mut state);
+    f.render_stateful_widget(list, inner, &mut state);
+}
+
+/// A floating modal's frame: one rounded, faint outline so it reads as glass
+/// lifted over the dashboard rather than another box in it.
+fn modal_block() -> Block<'static> {
+    Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(FAINT))
+        .padding(Padding::horizontal(1))
+}
+
+/// Hint line for a modal's bottom edge, spaced off the rounded corners.
+fn modal_hints(pairs: &[(&str, &str)]) -> Line<'static> {
+    let mut line = hints(pairs);
+    line.spans.insert(0, Span::raw(" "));
+    line.spans.push(Span::raw(" "));
+    line
 }
 
 /// `── LECTURES ──────────────────────── 2`
@@ -109,17 +125,17 @@ pub fn draw_courses(f: &mut Frame, app: &App, area: Rect) {
 /// second box — nesting borders is what the dashboard deliberately avoids.
 /// Same vocabulary though: uppercase title, rule, trailing count.
 fn section_rule(name: &str, count: usize, width: usize, color: Color) -> ListItem<'static> {
-    let title = format!(" {} ", name.to_uppercase());
+    let title = format!(" {} ", name.to_lowercase());
     let tail = format!(" {} ", count);
     let lead = 2usize; // the "──" that opens the rule
     let rule = width.saturating_sub(lead + title.chars().count() + tail.chars().count());
     ListItem::new(Line::from(vec![
-        Span::styled("──", Style::default().fg(color)),
+        Span::styled("──", Style::default().fg(FAINT)),
         Span::styled(
             title,
             Style::default().fg(color).add_modifier(Modifier::BOLD),
         ),
-        Span::styled("─".repeat(rule), Style::default().fg(color)),
+        Span::styled("─".repeat(rule), Style::default().fg(FAINT)),
         Span::styled(tail, Style::default().fg(DIM)),
     ]))
 }
@@ -167,21 +183,32 @@ pub fn draw_course_modal(f: &mut Frame, app: &App, area: Rect) {
     };
     f.render_widget(Clear, popup);
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(color))
-        .title(Span::styled(
-            format!(" {} — {}/{} goals done ", p.name, done, total),
-            Style::default().fg(color).add_modifier(Modifier::BOLD),
-        ))
-        .title_bottom(Line::from(Span::styled(
-            " a:task S:section ⏎:done p:link↗ t:due e:rename m:move J/K:reorder dd:del Tab:next q:close ",
-            Style::default().fg(DIM),
-        )));
+    let block = modal_block()
+        .title(Line::from(vec![
+            Span::styled(
+                format!(" {} ", p.name),
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(format!("{}/{} done ", done, total), Style::default().fg(DIM)),
+        ]))
+        .title_bottom(
+            modal_hints(&[
+                ("a", "task"),
+                ("S", "section"),
+                ("⏎", "done"),
+                ("p", "link"),
+                ("t", "due"),
+                ("e", "rename"),
+                ("m", "move"),
+                ("J/K", "reorder"),
+                ("dd", "del"),
+                ("q", "close"),
+            ]),
+        );
 
-    // 2 borders + a 1-column right margin so badges and counts do not butt
-    // against the frame.
-    let inner_w = popup.width.saturating_sub(3) as usize;
+    // 2 borders + 2 padding columns + a 1-column right margin so badges and
+    // counts do not butt against the frame.
+    let inner_w = popup.width.saturating_sub(5) as usize;
 
     if rows.is_empty() {
         f.render_widget(
@@ -228,7 +255,7 @@ pub fn draw_course_modal(f: &mut Frame, app: &App, area: Rect) {
                     Style::default()
                 };
                 let marker = if app.is_pinned(*tid) {
-                    Span::styled("↗ ", Style::default().fg(Color::LightCyan))
+                    Span::styled("↗ ", Style::default().fg(PALETTE[2]))
                 } else {
                     Span::styled("○ ", style)
                 };
@@ -271,21 +298,19 @@ pub fn draw_archived_modal(f: &mut Frame, app: &App, area: Rect) {
     };
     f.render_widget(Clear, popup);
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(DIM))
-        .title(Span::styled(
-            format!(
-                " ARCHIVED — {} course{} ",
-                courses.len(),
-                if courses.len() == 1 { "" } else { "s" }
+    let block = modal_block()
+        .title(Line::from(vec![
+            Span::styled(" archived ", Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!(
+                    "{} course{} ",
+                    courses.len(),
+                    if courses.len() == 1 { "" } else { "s" }
+                ),
+                Style::default().fg(DIM),
             ),
-            Style::default().add_modifier(Modifier::BOLD),
-        ))
-        .title_bottom(Line::from(Span::styled(
-            " x:restore  ⏎:open  q:close ",
-            Style::default().fg(DIM),
-        )));
+        ]))
+        .title_bottom(modal_hints(&[("x", "restore"), ("⏎", "open"), ("q", "close")]));
 
     if courses.is_empty() {
         f.render_widget(
