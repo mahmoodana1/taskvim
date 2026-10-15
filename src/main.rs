@@ -41,6 +41,7 @@ fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
             app.last_tick = today;
             app.tick();
         }
+        app.sync_from_disk();
         if app.poll_feed() {
             continue;
         }

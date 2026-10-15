@@ -133,6 +133,10 @@ pub struct App {
     /// A Yedion fetch running in the background; its feed replaces
     /// `calendar_feed` when it lands.
     pub feed_refresh: Option<std::sync::mpsc::Receiver<Vec<crate::calendar::Class>>>,
+    /// Modification time of data.json as of our last load or save. Anything
+    /// newer was written by someone else (the phone, through the subscreen
+    /// agent), and `sync_from_disk` takes it in.
+    pub disk_mtime: Option<std::time::SystemTime>,
 }
 
 pub const UNDO_HISTORY_LIMIT: usize = 100;
@@ -144,6 +148,7 @@ impl App {
         app.calendar_feed = crate::calendar::load_cached();
         app.feed_refresh = Some(crate::calendar::refresh_in_background());
         app.tick();
+        app.disk_mtime = Self::data_mtime();
         app
     }
 
@@ -206,17 +211,46 @@ impl App {
             redo_stack: Vec::new(),
             last_tick: Local::now().date_naive(),
             feed_refresh: None,
+            disk_mtime: None,
         }
     }
 
     pub fn save_quiet(&mut self) {
         self.checkpoint();
         let _ = self.data.save();
+        self.disk_mtime = Self::data_mtime();
+    }
+
+    fn data_mtime() -> Option<std::time::SystemTime> {
+        std::fs::metadata(Data::path()).and_then(|m| m.modified()).ok()
+    }
+
+    /// Take in changes another program made to data.json while we were open.
+    /// Every edit here is saved straight away, so nothing of ours is pending
+    /// when this replaces `data`; the undo history is dropped because it
+    /// describes a file that no longer exists.
+    pub fn sync_from_disk(&mut self) {
+        let mtime = Self::data_mtime();
+        if mtime.is_none() || mtime == self.disk_mtime {
+            return;
+        }
+        self.disk_mtime = mtime;
+        let fresh = Data::load();
+        if fresh != self.data {
+            self.data = fresh;
+            self.saved_snapshot = self.data.clone();
+            self.undo_stack.clear();
+            self.redo_stack.clear();
+            self.clamp();
+            self.status = String::from("updated from another device");
+        }
     }
 
     pub fn save(&mut self) {
         self.checkpoint();
-        match self.data.save() {
+        let saved = self.data.save();
+        self.disk_mtime = Self::data_mtime();
+        match saved {
             Ok(_) => self.status = format!("written to {}", Data::path().display()),
             Err(e) => self.status = format!("save failed: {}", e),
         }

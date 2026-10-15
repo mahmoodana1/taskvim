@@ -7,9 +7,9 @@ fn d(s: &str) -> NaiveDate {
 }
 
 /// An App built around in-memory data. Note that methods under test call
-/// `save_quiet()`, which writes to `Data::path()` — tests must be run with
-/// `XDG_DATA_HOME` pointed at a scratch dir. Assertions here are on in-memory
-/// state only; nothing depends on what lands on disk.
+/// `save_quiet()`, which writes to `Data::path()`; under `cfg(test)` that is a
+/// per-process file in the temp dir, never the user's data. Assertions here
+/// are on in-memory state only; nothing depends on what lands on disk.
 pub fn test_app(tasks: Vec<Task>) -> App {
     let mut data = Data::default();
     data.next_id = 100;

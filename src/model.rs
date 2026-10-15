@@ -178,6 +178,13 @@ pub struct Data {
 
 impl Data {
     pub fn path() -> PathBuf {
+        // Tests must never touch the real file: it is the user's only copy,
+        // and Syncthing carries any overwrite to every other machine.
+        if cfg!(test) {
+            return std::env::temp_dir()
+                .join(format!("taskvim-test-{}", std::process::id()))
+                .join("data.json");
+        }
         dirs::data_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join("taskvim")
