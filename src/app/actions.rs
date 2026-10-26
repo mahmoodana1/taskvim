@@ -1,12 +1,15 @@
 //! The mutating operations on `App`: adding, completing, deleting,
 //! reordering, and pinning tasks, sections, and courses.
 
-use chrono::{Duration as CDuration, Local, Months, NaiveDate};
+use chrono::{Duration as CDuration, Local, Months, NaiveDate, Timelike};
 use rand::Rng;
 
-use crate::app::{App, DashRow, InsertTarget, Mode, Pane, Row, View};
+use crate::app::{App, DashRow, EventForm, EventTarget, InsertTarget, Mode, Pane, Row, View};
+use crate::calendar::{AgendaItem, Class};
 use crate::due::parse_due;
-use crate::model::{DashSection, LogEntry, Project, Repeat, Section, Task, COLOR_COUNT};
+use crate::model::{
+    CalendarEvent, ClassEdit, DashSection, LogEntry, Project, Repeat, Section, Task, COLOR_COUNT,
+};
 
 impl App {
     /// Strip only a trailing `!due` token. Used by the course modal, where the
@@ -502,22 +505,6 @@ impl App {
                     self.status = String::from("use HH:MM-HH:MM, for example 09:00-10:30 or none");
                 }
             }
-            InsertTarget::CalendarEvent { date } => {
-                if let Some((title, start, end)) = crate::calendar::parse_event_input(&buf) {
-                    let id = self.data.new_id();
-                    self.data.calendar_events.push(crate::model::CalendarEvent {
-                        id,
-                        date,
-                        title,
-                        start_time: start,
-                        end_time: end,
-                    });
-                    self.status = String::from("calendar event added");
-                    self.save_quiet();
-                } else {
-                    self.status = String::from("use Event title 09:00-10:30");
-                }
-            }
             InsertTarget::CalendarEventTime { event } => {
                 if let Some((start, end)) = crate::calendar::parse_time_range(buf.trim()) {
                     if let Some(item) = self
@@ -532,20 +519,9 @@ impl App {
                         self.save_quiet();
                     }
                     if self.view == View::Calendar {
-                        let all_day =
-                            crate::calendar::all_day_tasks_on(&self.data.tasks, self.calendar_date);
-                        if let Some(pos) = crate::calendar::agenda_on(
-                            &self.data.tasks,
-                            &self.data.calendar_events,
-                            &self.calendar_feed,
-                            &self.data.calendar_hidden_feed,
-                            self.calendar_date,
-                        )
-                        .iter()
-                        .position(|item| matches!(item, crate::calendar::AgendaItem::Event(e) if e.id == event))
-                        {
-                            self.calendar_sel = all_day.len() + pos;
-                        }
+                        self.select_calendar(|item| {
+                            matches!(item, crate::calendar::AgendaItem::Event(e) if e.id == event)
+                        });
                     }
                 } else {
                     self.status = String::from("use HH:MM-HH:MM, for example 09:00-10:30");
@@ -623,21 +599,7 @@ impl App {
             self.save_quiet();
         }
         if self.view == View::Calendar {
-            let all_day = crate::calendar::all_day_tasks_on(&self.data.tasks, self.calendar_date);
-            if let Some(pos) = all_day.iter().position(|item| item.id == task) {
-                self.calendar_sel = pos;
-            } else if let Some(pos) = crate::calendar::agenda_on(
-                &self.data.tasks,
-                &self.data.calendar_events,
-                &self.calendar_feed,
-                &self.data.calendar_hidden_feed,
-                self.calendar_date,
-            )
-            .iter()
-            .position(|item| item.task_id() == Some(task))
-            {
-                self.calendar_sel = all_day.len() + pos;
-            }
+            self.select_calendar(|item| item.task_id() == Some(task));
         }
     }
 
@@ -770,5 +732,238 @@ impl App {
         self.status = String::from(
             "a:task S:section p:link→dashboard c:priority t:due e:rename m:move dd:delete q:close",
         );
+    }
+}
+
+// ---------------------------------------------------------- calendar events
+
+impl App {
+    /// A blank form for an event on the selected day, an hour long. Today it
+    /// starts at the next full hour; other days at 09:00.
+    pub fn new_event_form(&self) -> EventForm {
+        let now = Local::now();
+        let hour = if self.calendar_date == now.date_naive() {
+            (now.hour() + 1).min(22)
+        } else {
+            9
+        };
+        let mut fields: [String; 6] = Default::default();
+        fields[EventForm::DATE] = self.calendar_date.format("%Y-%m-%d").to_string();
+        fields[EventForm::TIME] = format!("{:02}:00-{:02}:00", hour, hour + 1);
+        fields[EventForm::REPEAT] = String::from("none");
+        EventForm {
+            target: EventTarget::New,
+            opened: fields.clone(),
+            fields,
+            focus: EventForm::TITLE,
+            all_meetings: false,
+        }
+    }
+
+    /// Open the form on the selected day-view item. Tasks have their own
+    /// keys (`s` time, `t` due), so only events and classes open here.
+    pub fn edit_calendar_selection(&mut self) {
+        let mut fields: [String; 6] = Default::default();
+        let target = match self.calendar_selected() {
+            Some(AgendaItem::Event(occurrence)) => {
+                // Edit the series as stored, not the dated occurrence.
+                let Some(event) = self.data.calendar_events.iter().find(|e| e.id == occurrence.id)
+                else {
+                    return;
+                };
+                fields[EventForm::DATE] = event.date.clone();
+                fields[EventForm::REPEAT] = event
+                    .repeat
+                    .as_ref()
+                    .map(crate::calendar::repeat_spec)
+                    .unwrap_or_else(|| String::from("none"));
+                fields[EventForm::UNTIL] = event
+                    .repeat
+                    .as_ref()
+                    .and_then(|r| r.until.clone())
+                    .unwrap_or_default();
+                EventTarget::Event(event.id)
+            }
+            Some(AgendaItem::Class(class)) if !class.id.is_empty() => {
+                fields[EventForm::DATE] = class.date.clone();
+                EventTarget::Class(class.id.clone())
+            }
+            Some(AgendaItem::Class(_)) => {
+                self.status = String::from("this feed item has no ID and cannot be edited");
+                return;
+            }
+            Some(AgendaItem::Task { .. }) => {
+                self.status = String::from("tasks: s sets the time · Enter completes");
+                return;
+            }
+            None => {
+                self.status = String::from("no calendar item selected");
+                return;
+            }
+        };
+        let item = self.calendar_selected().expect("matched above");
+        fields[EventForm::TITLE] = item.title().to_string();
+        fields[EventForm::NOTE] = item.note().to_string();
+        fields[EventForm::TIME] = format!("{}-{}", item.start(), item.end());
+        self.mode = Mode::EventForm(EventForm {
+            target,
+            opened: fields.clone(),
+            fields,
+            focus: EventForm::TITLE,
+            all_meetings: false,
+        });
+    }
+
+    pub fn save_event_form(&mut self, form: EventForm) {
+        let field = |i: usize| form.fields[i].trim().to_string();
+        let title = field(EventForm::TITLE);
+        let note = field(EventForm::NOTE);
+        let Some((start, end)) = crate::calendar::parse_time_range(&field(EventForm::TIME)) else {
+            self.status = String::from("time: use HH:MM-HH:MM, for example 09:00-10:30");
+            return;
+        };
+
+        if let EventTarget::Class(id) = &form.target {
+            self.save_class_edit(id, &form, title, note, (start, end));
+            return;
+        }
+
+        if title.is_empty() {
+            self.status = String::from("give the event a title");
+            return;
+        }
+        let date = match parse_due(&field(EventForm::DATE)) {
+            Ok(Some(date)) => date,
+            _ => {
+                self.status = String::from("date: try 2026-10-20, 10-20, +3, or tomorrow");
+                return;
+            }
+        };
+        let mut repeat = match crate::calendar::parse_event_repeat(&field(EventForm::REPEAT)) {
+            Ok(repeat) => repeat,
+            Err(_) => {
+                self.status =
+                    String::from("repeat: none · daily · weekly · 2w · monthly · yearly · sun,tue");
+                return;
+            }
+        };
+        let until = match parse_due(&field(EventForm::UNTIL)) {
+            Ok(until) => until,
+            Err(_) => {
+                self.status = String::from("until: a date like 2027-01-31, or empty for forever");
+                return;
+            }
+        };
+        if until.as_deref().is_some_and(|u| u < date.as_str()) {
+            self.status = String::from("until is before the event's date");
+            return;
+        }
+        if let Some(repeat) = repeat.as_mut() {
+            repeat.until = until;
+        }
+
+        let id = match form.target {
+            EventTarget::Event(id) => {
+                let Some(event) = self.data.calendar_events.iter_mut().find(|e| e.id == id) else {
+                    return;
+                };
+                // A new start date or rule re-lays every occurrence, so the
+                // dates deleted one by one no longer mean anything.
+                if event.date != date || event.repeat != repeat {
+                    event.skip.clear();
+                }
+                event.title = title;
+                event.note = note;
+                event.date = date.clone();
+                event.start_time = start;
+                event.end_time = end;
+                event.repeat = repeat;
+                self.status = String::from("event updated");
+                id
+            }
+            _ => {
+                let id = self.data.new_id();
+                self.data.calendar_events.push(CalendarEvent {
+                    id,
+                    date: date.clone(),
+                    title,
+                    start_time: start,
+                    end_time: end,
+                    note,
+                    repeat,
+                    skip: Vec::new(),
+                });
+                self.status = String::from("event added");
+                id
+            }
+        };
+        self.save_quiet();
+        // Follow a new event to its day; an edited one stays where the
+        // cursor is when it still happens there.
+        let here = self
+            .data
+            .calendar_events
+            .iter()
+            .find(|e| e.id == id)
+            .is_some_and(|e| crate::calendar::occurs_on(e, self.calendar_date));
+        if !here {
+            if let Ok(day) = NaiveDate::parse_from_str(&date, "%Y-%m-%d") {
+                self.calendar_date = day;
+            }
+        }
+        self.select_calendar(|item| matches!(item, AgendaItem::Event(e) if e.id == id));
+    }
+
+    /// Store a class edit as local overrides of the feed. Only what differs
+    /// from the feed is kept, so later feed changes still show through
+    /// everywhere else; an empty title goes back to the feed's. With
+    /// `all_meetings`, the fields changed in the form go to every meeting
+    /// sharing this one's Yedion title.
+    fn save_class_edit(&mut self, id: &str, form: &EventForm, title: String, note: String, time: (String, String)) {
+        let Some(picked) = self.calendar_feed.iter().find(|c| c.id == id).cloned() else {
+            return;
+        };
+        let changed = |i: usize| form.fields[i].trim() != form.opened[i].trim();
+        let targets: Vec<Class> = if form.all_meetings {
+            self.calendar_feed.iter().filter(|c| c.title == picked.title && !c.id.is_empty()).cloned().collect()
+        } else {
+            vec![picked.clone()]
+        };
+        for class in &targets {
+            let mut edit = self
+                .data
+                .calendar_class_edits
+                .iter()
+                .find(|e| e.id == class.id)
+                .cloned()
+                .unwrap_or_else(|| ClassEdit { id: class.id.clone(), ..Default::default() });
+            let set = |slot: &mut Option<String>, value: &str, original: &str| {
+                *slot = (value != original).then(|| value.to_string());
+            };
+            let only_one = !form.all_meetings;
+            if only_one || changed(EventForm::TITLE) {
+                let value = if title.is_empty() { class.title.as_str() } else { title.as_str() };
+                set(&mut edit.title, value, &class.title);
+            }
+            if only_one || changed(EventForm::NOTE) {
+                set(&mut edit.note, &note, &class.note);
+            }
+            if only_one || changed(EventForm::TIME) {
+                set(&mut edit.start_time, &time.0, &class.start);
+                set(&mut edit.end_time, &time.1, &class.end);
+            }
+            self.data.calendar_class_edits.retain(|e| e.id != class.id);
+            if edit != (ClassEdit { id: class.id.clone(), ..Default::default() }) {
+                self.data.calendar_class_edits.push(edit);
+            }
+        }
+        let name = if title.is_empty() { picked.title.clone() } else { title };
+        self.status = if form.all_meetings {
+            format!("updated {} meetings of {}", targets.len(), name)
+        } else {
+            format!("updated {}", name)
+        };
+        self.save_quiet();
+        self.select_calendar(|item| matches!(item, AgendaItem::Class(c) if c.id == id));
     }
 }

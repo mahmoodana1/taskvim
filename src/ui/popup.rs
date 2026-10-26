@@ -8,8 +8,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
 use ratatui::Frame;
 
-use crate::app::{App, InsertTarget, Mode, View};
-use crate::ui::theme::{DIM, TEXT};
+use crate::app::{App, EventForm, EventTarget, InsertTarget, Mode, View};
+use crate::ui::theme::{visual, DIM, MUTED, SUB, TEXT};
 
 pub fn draw_statusbar(f: &mut Frame, app: &App, area: Rect) {
     let line = match &app.mode {
@@ -20,6 +20,12 @@ pub fn draw_statusbar(f: &mut Frame, app: &App, area: Rect) {
         ]),
         Mode::Insert(_, _) => Line::from(Span::styled(
             " -- INSERT --  (Enter: confirm · Esc: cancel)",
+            Style::default()
+                .fg(Color::LightGreen)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Mode::EventForm(_) => Line::from(Span::styled(
+            " -- EVENT --  (Tab/↑↓ field · Ctrl-U clear field · Enter save · Esc cancel)",
             Style::default()
                 .fg(Color::LightGreen)
                 .add_modifier(Modifier::BOLD),
@@ -67,7 +73,6 @@ pub fn draw_input_popup(f: &mut Frame, target: &InsertTarget, buf: &str) {
         InsertTarget::DashTask => " New task  (…text @course !due) ",
         InsertTarget::CalendarTask { .. } => " New task  (…text @course !due HH:MM-HH:MM) ",
         InsertTarget::CalendarTaskTime { .. } => " Schedule task  (HH:MM-HH:MM · none clears) ",
-        InsertTarget::CalendarEvent { .. } => " New event  (title HH:MM-HH:MM) ",
         InsertTarget::CalendarEventTime { .. } => " Event time  (HH:MM-HH:MM) ",
         InsertTarget::CourseTask { .. } => " New task in course  (…text !due) ",
         InsertTarget::Course => " New course / project ",
@@ -102,6 +107,75 @@ pub fn draw_input_popup(f: &mut Frame, target: &InsertTarget, buf: &str) {
         Span::styled("█", Style::default().fg(Color::LightGreen)),
     ]);
     f.render_widget(Paragraph::new(text).block(block), popup);
+}
+
+/// The add / edit event form: one row per field, the focused one carrying the
+/// cursor, and a hint for it underneath.
+pub fn draw_event_form(f: &mut Frame, app: &App, form: &EventForm) {
+    let title = match &form.target {
+        EventTarget::New => " New event ",
+        EventTarget::Event(id) => {
+            let repeats = app
+                .data
+                .calendar_events
+                .iter()
+                .any(|e| e.id == *id && e.repeat.is_some());
+            if repeats {
+                " Edit event  (every occurrence) "
+            } else {
+                " Edit event "
+            }
+        }
+        EventTarget::Class(_) if form.all_meetings => " Edit class  (every meeting · Ctrl-A: just this one) ",
+        EventTarget::Class(_) => " Edit class  (this meeting · Ctrl-A: every meeting) ",
+    };
+    let hint = match form.focus {
+        EventForm::NOTE => "shown beside the title — room, link, anything",
+        EventForm::DATE => "2026-10-20 · 10-20 · +3 · tomorrow",
+        EventForm::TIME => "HH:MM-HH:MM",
+        EventForm::REPEAT => "none · daily · weekly · 2w · monthly · yearly · 3d · sun,tue · 2w mon,wed",
+        EventForm::UNTIL => "last day it repeats — empty for forever",
+        _ if matches!(form.target, EventTarget::Class(_)) => "empty goes back to the Yedion title",
+        _ => "",
+    };
+    let shown = form.fields_shown();
+    let area = f.area();
+    let w = (area.width.saturating_sub(10)).min(72).max(30);
+    let h = shown.len() as u16 + 4;
+    let popup = Rect {
+        x: area.x + (area.width.saturating_sub(w)) / 2,
+        y: area.y + area.height.saturating_sub(h) / 2,
+        width: w,
+        height: h,
+    };
+    let mut lines = Vec::new();
+    for &field in shown {
+        let focused = field == form.focus;
+        let label_style = if focused {
+            Style::default().fg(TEXT).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(MUTED)
+        };
+        let mut row = vec![
+            Span::styled(format!(" {:<7}", EventForm::LABELS[field]), label_style),
+            Span::styled(
+                visual(&form.fields[field]),
+                Style::default().fg(if focused { TEXT } else { SUB }),
+            ),
+        ];
+        if focused {
+            row.push(Span::styled("█", Style::default().fg(Color::LightGreen)));
+        }
+        lines.push(Line::from(row));
+    }
+    lines.push(Line::default());
+    lines.push(Line::from(Span::styled(format!(" {}", hint), Style::default().fg(MUTED))));
+    f.render_widget(Clear, popup);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::LightGreen))
+        .title(Span::styled(title, Style::default().add_modifier(Modifier::BOLD)));
+    f.render_widget(Paragraph::new(lines).block(block), popup);
 }
 
 pub fn draw_due_menu(f: &mut Frame, app: &App, task: u64) {

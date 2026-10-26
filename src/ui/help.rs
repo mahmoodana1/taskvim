@@ -59,6 +59,10 @@ pub fn draw_help(f: &mut Frame, area: Rect) {
             "Calendar",
             "d/w/m views · 24-hour day · dd delete selected item · u undo · Ctrl-R redo",
         ),
+        key(
+            "Calendar events",
+            "e new · ⏎/E edit (note, time, repeat) · dd this one · D whole series",
+        ),
         key("x / X", "archive the selected course · open the archive"),
         key(
             "u / Ctrl-R",

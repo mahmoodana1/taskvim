@@ -144,10 +144,48 @@ pub struct LogEntry {
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct CalendarEvent {
     pub id: u64,
+    /// The first (or only) day the event happens on.
     pub date: String,
     pub title: String,
     pub start_time: String,
     pub end_time: String,
+    /// A short line shown beside the title, e.g. a room.
+    #[serde(default)]
+    pub note: String,
+    #[serde(default)]
+    pub repeat: Option<EventRepeat>,
+    /// Occurrences of a repeating event deleted one by one (YYYY-MM-DD).
+    #[serde(default)]
+    pub skip: Vec<String>,
+}
+
+/// How a calendar event repeats from its `date`, Google Calendar style.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+pub struct EventRepeat {
+    pub every: u32,
+    pub unit: RepeatUnit,
+    /// Weekly only: the weekdays it falls on, 0 = Sunday. Empty means the
+    /// weekday of the event's `date`.
+    #[serde(default)]
+    pub days: Vec<u32>,
+    /// Last day an occurrence may fall on (YYYY-MM-DD); `None` repeats forever.
+    #[serde(default)]
+    pub until: Option<String>,
+}
+
+/// Local changes to one entry of the read-only Yedion feed, keyed by its UID.
+/// `None` keeps whatever the feed says.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Default)]
+pub struct ClassEdit {
+    pub id: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(default)]
+    pub start_time: Option<String>,
+    #[serde(default)]
+    pub end_time: Option<String>,
 }
 
 /// How many colours courses cycle through when assigned automatically.
@@ -171,6 +209,9 @@ pub struct Data {
     /// Yedion feed entries hidden locally by the user.
     #[serde(default)]
     pub calendar_hidden_feed: Vec<String>,
+    /// Local edits to Yedion feed entries.
+    #[serde(default)]
+    pub calendar_class_edits: Vec<ClassEdit>,
     pub daily_goal: u32,
     pub next_id: u64,
     pub next_color: usize,
@@ -256,6 +297,12 @@ impl Data {
             self.version = 6;
         }
 
+        // v7: events gained a note, a repeat rule and skipped dates; feed
+        // entries can carry local edits. All default, so just the bump.
+        if self.version < 7 {
+            self.version = 7;
+        }
+
         let mut seen = HashSet::new();
         self.projects.retain(|p| seen.insert(p.id));
         seen.clear();
@@ -337,7 +384,7 @@ mod tests {
         d.sanitize();
 
         assert_eq!(
-            d.version, 6,
+            d.version, 7,
             "migration runs all the way to the current version"
         );
         assert_eq!(d.tasks.len(), 1);
@@ -355,7 +402,7 @@ mod tests {
         let s = serde_json::to_string(&d).unwrap();
         let back: Data = serde_json::from_str(&s).unwrap();
         assert_eq!(back.log[0].task, Some(1));
-        assert_eq!(back.version, 6);
+        assert_eq!(back.version, 7);
     }
 
     #[test]
@@ -363,7 +410,7 @@ mod tests {
         let mut d: Data = serde_json::from_str(v2_json()).expect("v2 json parses");
         d.sanitize();
 
-        assert_eq!(d.version, 6);
+        assert_eq!(d.version, 7);
         assert_eq!(d.tasks.len(), 1);
         assert!(!d.tasks[0].relink, "nothing is pending a re-link");
     }
@@ -384,7 +431,7 @@ mod tests {
         let back: Data = serde_json::from_str(&s).unwrap();
         assert!(back.projects[0].archived);
         assert!(back.tasks[0].relink);
-        assert_eq!(back.version, 6);
+        assert_eq!(back.version, 7);
     }
 
     #[test]

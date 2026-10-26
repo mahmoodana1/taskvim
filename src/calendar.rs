@@ -7,7 +7,9 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 
-use chrono::NaiveDate;
+use chrono::{Datelike, NaiveDate};
+
+use crate::model::{CalendarEvent, Data, EventRepeat, RepeatUnit};
 
 #[derive(Clone)]
 pub struct Class {
@@ -16,7 +18,8 @@ pub struct Class {
     pub date: String,
     pub start: String,
     pub end: String,
-    pub room: String,
+    /// Shown beside the title: the room code, unless edited locally.
+    pub note: String,
 }
 
 #[derive(Clone)]
@@ -25,10 +28,13 @@ pub enum AgendaItem {
     Task {
         id: u64,
         text: String,
+        /// The task's course name, or empty for a loose task.
+        course: String,
         start: String,
         end: String,
     },
-    Event(crate::model::CalendarEvent),
+    /// One occurrence: `date` is the day it falls on, not the series start.
+    Event(CalendarEvent),
 }
 
 impl AgendaItem {
@@ -44,6 +50,20 @@ impl AgendaItem {
             Self::Class(item) => &item.end,
             Self::Task { end, .. } => end,
             Self::Event(item) => &item.end_time,
+        }
+    }
+    pub fn title(&self) -> &str {
+        match self {
+            Self::Class(item) => &item.title,
+            Self::Task { text, .. } => text,
+            Self::Event(item) => &item.title,
+        }
+    }
+    pub fn note(&self) -> &str {
+        match self {
+            Self::Class(item) => &item.note,
+            Self::Task { course, .. } => course,
+            Self::Event(item) => &item.note,
         }
     }
     pub fn task_id(&self) -> Option<u64> {
@@ -180,6 +200,10 @@ fn event_from(fields: &HashMap<String, String>) -> Option<Class> {
         .get("DTEND")
         .and_then(|value| parse_ical_datetime(value))
         .unwrap_or_else(|| (date.clone(), start.clone()));
+    let room = fields
+        .get("LOCATION")
+        .map(|v| unescape_ical(v))
+        .unwrap_or_default();
     Some(Class {
         id: fields.get("UID").cloned().unwrap_or_default(),
         title: fields
@@ -189,10 +213,7 @@ fn event_from(fields: &HashMap<String, String>) -> Option<Class> {
         date,
         start,
         end,
-        room: fields
-            .get("LOCATION")
-            .map(|v| unescape_ical(v))
-            .unwrap_or_default(),
+        note: room_code(&room),
     })
 }
 
@@ -244,12 +265,26 @@ pub fn parse_ical(input: &str) -> Vec<Class> {
     events
 }
 
-pub fn classes_on(date: NaiveDate, schedule: &[Class], hidden: &[String]) -> Vec<Class> {
+pub fn classes_on(date: NaiveDate, data: &Data, schedule: &[Class]) -> Vec<Class> {
     let key = date.format("%Y-%m-%d").to_string();
     let mut found: Vec<_> = schedule
         .iter()
-        .filter(|event| event.date == key && !hidden.contains(&event.id))
-        .cloned()
+        .filter(|event| event.date == key && !data.calendar_hidden_feed.contains(&event.id))
+        .map(|class| {
+            let mut class = class.clone();
+            if let Some(edit) = data.calendar_class_edits.iter().find(|e| e.id == class.id) {
+                let set = |field: &mut String, value: &Option<String>| {
+                    if let Some(value) = value {
+                        *field = value.clone();
+                    }
+                };
+                set(&mut class.title, &edit.title);
+                set(&mut class.note, &edit.note);
+                set(&mut class.start, &edit.start_time);
+                set(&mut class.end, &edit.end_time);
+            }
+            class
+        })
         .collect();
     found.sort_by(|a, b| a.start.cmp(&b.start));
     found
@@ -272,49 +307,182 @@ pub fn all_day_tasks_on<'a>(
     found
 }
 
-pub fn agenda_on(
-    tasks: &[crate::model::Task],
-    events: &[crate::model::CalendarEvent],
-    schedule: &[Class],
-    hidden: &[String],
-    date: NaiveDate,
-) -> Vec<AgendaItem> {
+pub fn agenda_on(data: &Data, schedule: &[Class], date: NaiveDate) -> Vec<AgendaItem> {
     let key = date.format("%Y-%m-%d").to_string();
     let mut items = Vec::new();
     items.extend(
-        classes_on(date, schedule, hidden)
+        classes_on(date, data, schedule)
             .into_iter()
             .map(AgendaItem::Class),
     );
-    items.extend(tasks.iter().filter_map(|task| {
+    items.extend(data.tasks.iter().filter_map(|task| {
         if task.completed || task.due.as_deref() != Some(key.as_str()) {
             return None;
         }
         Some(AgendaItem::Task {
             id: task.id,
             text: task.text.clone(),
+            course: course_name(data, task.project),
             start: task.start_time.clone()?,
             end: task.end_time.clone()?,
         })
     }));
-    items.extend(
-        events_on(events, date)
-            .into_iter()
-            .cloned()
-            .map(AgendaItem::Event),
-    );
+    items.extend(events_on(&data.calendar_events, date).into_iter().map(AgendaItem::Event));
     items.sort_by(|a, b| a.start().cmp(b.start()));
     items
 }
 
-pub fn events_on<'a>(
-    events: &'a [crate::model::CalendarEvent],
-    date: NaiveDate,
-) -> Vec<&'a crate::model::CalendarEvent> {
+/// The name of the course a task belongs to, or empty for a loose task.
+pub fn course_name(data: &Data, project: Option<u64>) -> String {
+    project
+        .and_then(|id| data.projects.iter().find(|p| p.id == id))
+        .map(|p| p.name.clone())
+        .unwrap_or_default()
+}
+
+/// Does `event` (or one of its repeats) fall on `date`?
+pub fn occurs_on(event: &CalendarEvent, date: NaiveDate) -> bool {
+    let Ok(first) = NaiveDate::parse_from_str(&event.date, "%Y-%m-%d") else {
+        return false;
+    };
     let key = date.format("%Y-%m-%d").to_string();
-    let mut found: Vec<_> = events.iter().filter(|event| event.date == key).collect();
+    let Some(repeat) = &event.repeat else {
+        return date == first;
+    };
+    if date < first || event.skip.contains(&key) {
+        return false;
+    }
+    if repeat.until.as_deref().is_some_and(|until| key.as_str() > until) {
+        return false;
+    }
+    let every = repeat.every.max(1) as i64;
+    match repeat.unit {
+        RepeatUnit::Day => (date - first).num_days() % every == 0,
+        RepeatUnit::Week => {
+            let sunday = |d: NaiveDate| d - chrono::Duration::days(d.weekday().num_days_from_sunday() as i64);
+            let weeks = (sunday(date) - sunday(first)).num_days() / 7;
+            let weekday = date.weekday().num_days_from_sunday();
+            let on_day = if repeat.days.is_empty() {
+                weekday == first.weekday().num_days_from_sunday()
+            } else {
+                repeat.days.contains(&weekday)
+            };
+            on_day && weeks % every == 0
+        }
+        // Months without that day (the 31st in April) are skipped, as
+        // Google Calendar does.
+        RepeatUnit::Month => {
+            let months = (date.year() - first.year()) as i64 * 12 + date.month() as i64
+                - first.month() as i64;
+            date.day() == first.day() && months % every == 0
+        }
+    }
+}
+
+/// The occurrences on `date`, each dated that day.
+pub fn events_on(events: &[CalendarEvent], date: NaiveDate) -> Vec<CalendarEvent> {
+    let key = date.format("%Y-%m-%d").to_string();
+    let mut found: Vec<_> = events
+        .iter()
+        .filter(|event| occurs_on(event, date))
+        .map(|event| CalendarEvent {
+            date: key.clone(),
+            ..event.clone()
+        })
+        .collect();
     found.sort_by(|a, b| a.start_time.cmp(&b.start_time));
     found
+}
+
+const WEEKDAYS: [&str; 7] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+
+/// Parse a repeat spec: `none` · `daily` · `weekly` · `monthly` · `yearly`
+/// · `3d` · `2w` · `1mo` · `sun,tue` (weekly on those days) · `2w sun,tue`.
+pub fn parse_event_repeat(spec: &str) -> Result<Option<EventRepeat>, ()> {
+    let s = spec.trim().to_lowercase();
+    if s.is_empty() || s == "none" || s == "never" || s == "-" {
+        return Ok(None);
+    }
+    let mut every = 1;
+    let mut unit = None;
+    let mut days = Vec::new();
+    for word in s.split(|c: char| c == ',' || c == ':' || c.is_whitespace()) {
+        if word.is_empty() || word == "on" || word == "every" {
+            continue;
+        }
+        // Any prefix of a day name from two letters: "tu", "tue", "tuesday".
+        const NAMES: [&str; 7] = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+        if let Some(day) = NAMES.iter().position(|d| word.len() >= 2 && d.starts_with(word)) {
+            if !days.contains(&(day as u32)) {
+                days.push(day as u32);
+            }
+            continue;
+        }
+        if unit.is_some() {
+            return Err(());
+        }
+        let (n, u) = match word {
+            "daily" | "day" => (1, RepeatUnit::Day),
+            "weekly" | "week" => (1, RepeatUnit::Week),
+            "monthly" | "month" => (1, RepeatUnit::Month),
+            "yearly" | "year" | "annually" => (12, RepeatUnit::Month),
+            _ => {
+                let (num, u, scale) = if let Some(rest) = word.strip_suffix("mo") {
+                    (rest, RepeatUnit::Month, 1)
+                } else if let Some(rest) = word.strip_suffix('y') {
+                    (rest, RepeatUnit::Month, 12)
+                } else if let Some(rest) = word.strip_suffix('w') {
+                    (rest, RepeatUnit::Week, 1)
+                } else if let Some(rest) = word.strip_suffix('d') {
+                    (rest, RepeatUnit::Day, 1)
+                } else {
+                    return Err(());
+                };
+                let n: u32 = num.parse().map_err(|_| ())?;
+                (n * scale, u)
+            }
+        };
+        if n == 0 {
+            return Err(());
+        }
+        every = n;
+        unit = Some(u);
+    }
+    let unit = match unit {
+        Some(RepeatUnit::Week) | None if !days.is_empty() => RepeatUnit::Week,
+        Some(_) if !days.is_empty() => return Err(()),
+        Some(unit) => unit,
+        None => return Err(()),
+    };
+    days.sort();
+    Ok(Some(EventRepeat {
+        every,
+        unit,
+        days,
+        until: None,
+    }))
+}
+
+/// The spec `parse_event_repeat` reads back: "weekly" · "2w sun,tue" · …
+pub fn repeat_spec(repeat: &EventRepeat) -> String {
+    let base = match (repeat.every.max(1), repeat.unit) {
+        (1, RepeatUnit::Day) => "daily".to_string(),
+        (1, RepeatUnit::Week) => "weekly".to_string(),
+        (1, RepeatUnit::Month) => "monthly".to_string(),
+        (12, RepeatUnit::Month) => "yearly".to_string(),
+        (n, RepeatUnit::Day) => format!("{}d", n),
+        (n, RepeatUnit::Week) => format!("{}w", n),
+        (n, RepeatUnit::Month) => format!("{}mo", n),
+    };
+    if repeat.days.is_empty() {
+        return base;
+    }
+    let days: Vec<_> = repeat.days.iter().filter_map(|&d| WEEKDAYS.get(d as usize).copied()).collect();
+    if repeat.every.max(1) == 1 {
+        days.join(",")
+    } else {
+        format!("{} {}", base, days.join(","))
+    }
 }
 
 pub fn parse_time_range(input: &str) -> Option<(String, String)> {
@@ -349,13 +517,4 @@ pub fn strip_time_range(input: &str) -> (String, Option<(String, String)>) {
         Some(range) => (text.trim().to_string(), Some(range)),
         None => (trimmed.to_string(), None),
     }
-}
-
-pub fn parse_event_input(input: &str) -> Option<(String, String, String)> {
-    let (title, token) = input.trim().rsplit_once(char::is_whitespace)?;
-    if title.trim().is_empty() {
-        return None;
-    }
-    let (start, end) = parse_time_range(token)?;
-    Some((title.trim().to_string(), start, end))
 }

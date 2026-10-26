@@ -78,7 +78,6 @@ pub enum InsertTarget {
     DashTask,
     CalendarTask { due: String },
     CalendarTaskTime { task: u64 },
-    CalendarEvent { date: String },
     CalendarEventTime { event: u64 },
     CourseTask { project: u64, section: Option<u64> },
     Course,
@@ -90,10 +89,64 @@ pub enum InsertTarget {
     RenameCourse { project: u64 },
 }
 
+/// What the calendar event form saves into.
+#[derive(PartialEq, Clone, Debug)]
+pub enum EventTarget {
+    New,
+    /// A local event — every occurrence when it repeats.
+    Event(u64),
+    /// A Yedion feed entry, by UID; saved as a local edit over the feed.
+    Class(String),
+}
+
+/// The Google Calendar-style add / edit form: one line per field, Tab to move.
+#[derive(PartialEq, Clone, Debug)]
+pub struct EventForm {
+    pub target: EventTarget,
+    /// Indexed by the `EventForm::*` field constants.
+    pub fields: [String; 6],
+    /// The fields as the form opened, to tell which ones were changed.
+    pub opened: [String; 6],
+    pub focus: usize,
+    /// Classes only: apply the changed fields to every meeting of the course.
+    pub all_meetings: bool,
+}
+
+impl EventForm {
+    pub const TITLE: usize = 0;
+    pub const NOTE: usize = 1;
+    pub const DATE: usize = 2;
+    pub const TIME: usize = 3;
+    pub const REPEAT: usize = 4;
+    pub const UNTIL: usize = 5;
+    pub const LABELS: [&'static str; 6] = ["title", "note", "date", "time", "repeat", "until"];
+
+    /// Fields this form edits, in Tab order. Feed classes keep the feed's
+    /// date and never repeat.
+    pub fn fields_shown(&self) -> &'static [usize] {
+        match self.target {
+            EventTarget::Class(_) => &[Self::TITLE, Self::NOTE, Self::TIME],
+            _ => &[Self::TITLE, Self::NOTE, Self::DATE, Self::TIME, Self::REPEAT, Self::UNTIL],
+        }
+    }
+
+    pub fn step(&mut self, forward: bool) {
+        let shown = self.fields_shown();
+        let at = shown.iter().position(|&f| f == self.focus).unwrap_or(0);
+        let next = if forward {
+            (at + 1) % shown.len()
+        } else {
+            (at + shown.len() - 1) % shown.len()
+        };
+        self.focus = shown[next];
+    }
+}
+
 #[derive(PartialEq, Clone)]
 pub enum Mode {
     Normal,
     Insert(InsertTarget, String),
+    EventForm(EventForm),
     Command(String),
     DueMenu { task: u64 },
     RepeatMenu { task: u64 },
@@ -605,6 +658,41 @@ impl App {
         }
         if self.log_sel >= self.data.log.len() {
             self.log_sel = self.data.log.len().saturating_sub(1);
+        }
+    }
+}
+
+// ---------------------------------------------------------------- calendar
+
+impl App {
+    pub fn calendar_agenda(&self, date: NaiveDate) -> Vec<crate::calendar::AgendaItem> {
+        crate::calendar::agenda_on(&self.data, &self.calendar_feed, date)
+    }
+
+    /// Selectable rows of the day view: all-day tasks, then the timeline.
+    pub fn calendar_rows(&self) -> Vec<crate::calendar::AgendaItem> {
+        let mut rows: Vec<_> = crate::calendar::all_day_tasks_on(&self.data.tasks, self.calendar_date)
+            .into_iter()
+            .map(|task| crate::calendar::AgendaItem::Task {
+                id: task.id,
+                text: task.text.clone(),
+                course: crate::calendar::course_name(&self.data, task.project),
+                start: String::new(),
+                end: String::new(),
+            })
+            .collect();
+        rows.extend(self.calendar_agenda(self.calendar_date));
+        rows
+    }
+
+    pub fn calendar_selected(&self) -> Option<crate::calendar::AgendaItem> {
+        self.calendar_rows().into_iter().nth(self.calendar_sel)
+    }
+
+    /// Put the day-view cursor on the first row matching `pred`, if any.
+    pub fn select_calendar(&mut self, pred: impl Fn(&crate::calendar::AgendaItem) -> bool) {
+        if let Some(pos) = self.calendar_rows().iter().position(pred) {
+            self.calendar_sel = pos;
         }
     }
 }
