@@ -73,8 +73,30 @@ Older files are migrated automatically on load — existing tasks land in
 *General* and nothing is dropped. Back it up, sync it, edit it by hand — it's
 yours.
 
-Note that older binaries will silently drop the newer fields if they write the
-file, so don't run two versions against the same data.
+Builds older than this one silently drop fields they don't know when they
+write the file. This one keeps every field it doesn't know, so later versions,
+other programs and the sync stamps all survive its saves.
+
+### Syncing between machines
+
+Syncthing can carry `~/.local/share/taskvim` between machines, but it copies
+the file whole: two machines editing while apart leave a
+`data.sync-conflict-*.json` copy and one side's edits vanish. `sync/` fixes
+that with a small service (Python, standard library only) on every machine:
+
+```sh
+sync/install.sh --taskvim          # the service, plus taskvim built here
+PREBUILT=1 sync/install.sh --taskvim   # slow machine: use taskvim-x86_64-linux
+sync/install.sh --status
+python3 sync/taskvim_sync.py --test    # self-tests
+```
+
+It stamps every record with when it last changed (`_m`) and a birth id
+(`_c`), keeps deletions as tombstones (`_sync`), and folds conflict copies
+back in record by record: the newer edit wins, deletions stick, and a task
+both sides created under one id keeps both. It diffs the file itself, so it
+works whichever program wrote it (taskvim, the subscreen agent, dojo, a
+script). State lives in `~/.local/state/taskvim-sync`.
 
 ## Keybindings
 
