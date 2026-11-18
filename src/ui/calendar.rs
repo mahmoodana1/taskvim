@@ -11,13 +11,26 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::{App, CalendarMode};
-use crate::calendar::{agenda_on, all_day_tasks_on, room_code, AgendaItem};
-use crate::ui::theme::{hints, is_rtl, visual, FAINT, MUTED, PALETTE, SEL_BG, SUB, TEXT, WARM};
+use crate::calendar::{all_day_tasks_on, AgendaItem};
+use crate::ui::theme::{ellipsize, hints, is_rtl, palette, visual, FAINT, MUTED, PALETTE, SUB, TEXT, WARM};
 
-const SEL: Color = SEL_BG;
 const NOW: Color = WARM;
 
+/// Selection is drawn inverted (dark text on a solid fill) rather than on a
+/// grey tint, which vanishes against a dark terminal background. The
+/// selected day's number (week and month) is a pill like this.
+fn pill() -> Style {
+    Style::default().fg(Color::Black).bg(TEXT).add_modifier(Modifier::BOLD)
+}
+
 const DAYS: [&str; 7] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+
+/// A task's course as a short label in the course's own colour, as on the
+/// dashboard; `None` for a loose task.
+fn course_tag(app: &App, task: &crate::model::Task, max: usize) -> Option<(String, Color)> {
+    app.project_of(task.project)
+        .map(|p| (ellipsize(&p.name, max), palette(p.color)))
+}
 
 /// Agenda entries take successive colours by their position in the day.
 fn entry_color(app: &App, index: usize) -> Color {
@@ -32,13 +45,7 @@ fn minute_of_day(time: &str) -> u16 {
 }
 
 fn day_agenda(app: &App, date: NaiveDate) -> Vec<AgendaItem> {
-    agenda_on(
-        &app.data.tasks,
-        &app.data.calendar_events,
-        &app.calendar_feed,
-        &app.data.calendar_hidden_feed,
-        date,
-    )
+    app.calendar_agenda(date)
 }
 
 /// Cut `s` to `max` chars and shape it for display. A right-to-left title
@@ -59,22 +66,24 @@ fn fit(s: &str, max: usize) -> String {
 }
 
 /// Title (cut to `max` chars, then shaped for display) and its trailing
-/// detail: the room for a class, the time range for anything else.
+/// detail: a class's note (its room) stands in for the time; anything else
+/// shows its time range, after its note when it has one. A repeating event
+/// is marked ↻.
 fn entry_text(item: &AgendaItem, max: usize) -> (String, String) {
-    let (glyph, title, detail) = match item {
-        AgendaItem::Class(class) => ("", class.title.as_str(), room_code(&class.room)),
-        AgendaItem::Task { text, .. } => (
-            "○ ",
-            text.as_str(),
-            format!("{}–{}", item.start(), item.end()),
-        ),
-        AgendaItem::Event(event) => (
-            "◇ ",
-            event.title.as_str(),
-            format!("{}–{}", item.start(), item.end()),
-        ),
+    let glyph = match item {
+        AgendaItem::Class(_) => "",
+        AgendaItem::Task { .. } => "○ ",
+        AgendaItem::Event(event) if event.repeat.is_some() => "↻ ",
+        AgendaItem::Event(_) => "◇ ",
     };
-    let title = fit(title, max.saturating_sub(glyph.chars().count()));
+    let time = format!("{}–{}", item.start(), item.end());
+    let detail = match item {
+        AgendaItem::Class(class) if class.note.is_empty() => time,
+        AgendaItem::Class(class) => class.note.clone(),
+        _ if item.note().is_empty() => time,
+        _ => format!("{} · {}", item.note(), time),
+    };
+    let title = fit(item.title(), max.saturating_sub(glyph.chars().count()));
     (format!("{}{}", glyph, title), visual(&detail))
 }
 
@@ -192,10 +201,17 @@ fn draw_day(f: &mut Frame, app: &App, area: Rect) {
         let mut line = vec![Span::styled("all day   ", Style::default().fg(MUTED))];
         for (i, task) in all_day.iter().enumerate() {
             let selected = app.calendar_sel == i;
-            let style = Style::default()
-                .fg(if selected { TEXT } else { SUB })
-                .bg(if selected { SEL } else { Color::Reset });
-            line.push(Span::styled(format!(" ○ {} ", visual(&task.text)), style));
+            let style = if selected {
+                pill()
+            } else {
+                Style::default().fg(SUB)
+            };
+            line.push(Span::styled(if selected { "▸○ " } else { " ○ " }, style));
+            if let Some((course, color)) = course_tag(app, task, 18) {
+                let fg = if selected { Color::Black } else { color };
+                line.push(Span::styled(format!("[{}] ", visual(&course)), style.fg(fg)));
+            }
+            line.push(Span::styled(format!("{} ", visual(&task.text)), style));
             line.push(Span::raw("  "));
         }
         let block = vec![Line::default(), Line::from(line)];
@@ -210,8 +226,9 @@ fn draw_day(f: &mut Frame, app: &App, area: Rect) {
             ("j/k", "select"),
             ("a", "task"),
             ("e", "event"),
+            ("⏎/E", "edit"),
             ("s", "time"),
-            ("dd", "delete"),
+            ("dd/D", "delete one/all"),
             ("t", "today"),
         ])),
         rows[3],
@@ -299,15 +316,23 @@ fn draw_timeline(f: &mut Frame, app: &App, agenda: &[AgendaItem], sel_offset: us
                     continue;
                 }
                 let color = entry_color(app, i);
-                put(xs[i], '▌', Style::default().fg(color));
                 let selected = app.calendar_sel == sel_offset + i;
+                // The selected entry's bar thickens along its whole span.
+                put(xs[i], if selected { '█' } else { '▌' }, Style::default().fg(color));
                 if row_idx == start * 2 {
-                    let bg = if selected { SEL } else { Color::Reset };
-                    let title = Style::default().fg(color).add_modifier(Modifier::BOLD).bg(bg);
-                    let detail = Style::default().fg(SUB).bg(bg);
+                    // Selected: the label is filled with the entry's own colour.
+                    let (title, detail) = if selected {
+                        let fill = Style::default().fg(Color::Black).bg(color);
+                        (fill.add_modifier(Modifier::BOLD), fill)
+                    } else {
+                        (
+                            Style::default().fg(color).add_modifier(Modifier::BOLD),
+                            Style::default().fg(SUB),
+                        )
+                    };
                     let mut x = xs[i] + 2;
                     if selected {
-                        put(x - 1, ' ', Style::default().bg(SEL));
+                        put(x - 1, ' ', detail);
                     }
                     for ch in labels[i].0.chars() {
                         put(x, ch, title);
@@ -321,7 +346,7 @@ fn draw_timeline(f: &mut Frame, app: &App, agenda: &[AgendaItem], sel_offset: us
                         x += 1;
                     }
                     if selected {
-                        put(x, ' ', Style::default().bg(SEL));
+                        put(x, ' ', detail);
                     }
                 }
             }
@@ -372,29 +397,29 @@ fn draw_week(f: &mut Frame, app: &App, area: Rect) {
         let is_today = date == today;
         let width = col.width as usize;
 
-        let head_color = if selected { TEXT } else if is_today { NOW } else { MUTED };
-        let mut head = vec![
-            Span::styled(
-                DAYS[i],
-                Style::default().fg(head_color),
-            ),
-            Span::styled(
-                format!(" {}", date.day()),
-                Style::default().fg(head_color).add_modifier(if selected || is_today {
-                    Modifier::BOLD
-                } else {
-                    Modifier::empty()
-                }),
-            ),
-        ];
+        let mut head = if selected {
+            vec![Span::styled(format!(" {} {} ", DAYS[i], date.day()), pill())]
+        } else {
+            let color = if is_today { NOW } else { MUTED };
+            let bold = if is_today { Modifier::BOLD } else { Modifier::empty() };
+            vec![
+                Span::styled(DAYS[i], Style::default().fg(color)),
+                Span::styled(
+                    format!(" {}", date.day()),
+                    Style::default().fg(color).add_modifier(bold),
+                ),
+            ]
+        };
         if is_today {
             head.push(Span::styled(" ●", Style::default().fg(NOW)));
         }
         let mut lines = vec![
             Line::from(head),
-            rule(col.width, if selected { SUB } else { FAINT }),
+            rule(col.width, if selected { TEXT } else { FAINT }),
             Line::default(),
         ];
+        // Other days step back a shade so the selected column stands out.
+        let (title_fg, detail_fg) = if selected { (TEXT, SUB) } else { (SUB, MUTED) };
 
         let agenda = day_agenda(app, date);
         for (index, item) in agenda.iter().enumerate() {
@@ -402,11 +427,11 @@ fn draw_week(f: &mut Frame, app: &App, area: Rect) {
             let (title, detail) = entry_text(item, width.saturating_sub(2));
             lines.push(Line::from(vec![
                 Span::styled("▌ ", Style::default().fg(color)),
-                Span::styled(title, Style::default().fg(TEXT)),
+                Span::styled(title, Style::default().fg(title_fg)),
             ]));
             lines.push(Line::from(vec![
                 Span::styled("▌ ", Style::default().fg(color)),
-                Span::styled(detail, Style::default().fg(SUB)),
+                Span::styled(detail, Style::default().fg(detail_fg)),
             ]));
             lines.push(Line::default());
         }
@@ -414,8 +439,14 @@ fn draw_week(f: &mut Frame, app: &App, area: Rect) {
             let text = fit(&task.text, width.saturating_sub(2));
             lines.push(Line::from(vec![
                 Span::styled("○ ", Style::default().fg(MUTED)),
-                Span::styled(text, Style::default().fg(SUB)),
+                Span::styled(text, Style::default().fg(title_fg)),
             ]));
+            if let Some((course, color)) = course_tag(app, task, width.saturating_sub(2)) {
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(visual(&course), Style::default().fg(color)),
+                ]));
+            }
         }
         if lines.len() == 3 {
             lines.push(Line::from(Span::styled("—", Style::default().fg(FAINT))));
@@ -467,9 +498,9 @@ fn draw_month(f: &mut Frame, app: &App, area: Rect) {
             let is_today = date == today;
             let width = cell.width as usize;
 
-            let mut lines = vec![rule(cell.width, if selected { SUB } else { FAINT })];
+            let mut lines = vec![rule(cell.width, if selected { TEXT } else { FAINT })];
             let num_style = if selected {
-                Style::default().fg(TEXT).bg(SEL).add_modifier(Modifier::BOLD)
+                pill()
             } else if is_today {
                 Style::default().fg(NOW).add_modifier(Modifier::BOLD)
             } else if in_month {
@@ -493,7 +524,7 @@ fn draw_month(f: &mut Frame, app: &App, area: Rect) {
                     let (title, _) = entry_text(item, width.saturating_sub(2));
                     lines.push(Line::from(vec![
                         Span::styled("▌ ", Style::default().fg(entry_color(app, index))),
-                        Span::styled(title, Style::default().fg(SUB)),
+                        Span::styled(title, Style::default().fg(if selected { TEXT } else { SUB })),
                     ]));
                 }
                 let hidden = total.saturating_sub(shown.min(agenda.len()));

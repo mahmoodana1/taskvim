@@ -719,3 +719,178 @@ fn x_archives_the_selected_course_and_capital_x_opens_the_archive() {
     app.handle_key(KeyCode::Char('X'), KeyModifiers::NONE);
     assert_eq!(app.view, crate::app::View::Archived);
 }
+
+// ---------------------------------------------------------- calendar events
+
+use crate::app::{CalendarMode, EventForm, Mode, View};
+use crate::calendar::{occurs_on, parse_event_repeat, repeat_spec, AgendaItem, Class};
+use crate::model::CalendarEvent;
+
+fn event(id: u64, date: &str, repeat: &str) -> CalendarEvent {
+    CalendarEvent {
+        id,
+        date: date.to_string(),
+        title: "gym".to_string(),
+        start_time: "18:00".to_string(),
+        end_time: "19:00".to_string(),
+        note: String::new(),
+        repeat: parse_event_repeat(repeat).unwrap(),
+        skip: Vec::new(),
+    }
+}
+
+fn calendar_app(date: &str) -> App {
+    let mut app = test_app(vec![]);
+    app.view = View::Calendar;
+    app.calendar_mode = CalendarMode::Day;
+    app.calendar_date = d(date);
+    app
+}
+
+fn press(app: &mut App, code: KeyCode) {
+    app.handle_key(code, KeyModifiers::NONE);
+}
+
+fn type_str(app: &mut App, s: &str) {
+    for c in s.chars() {
+        press(app, KeyCode::Char(c));
+    }
+}
+
+#[test]
+fn repeat_specs_parse_and_round_trip() {
+    for spec in ["daily", "weekly", "monthly", "yearly", "3d", "2w", "2mo", "sun,tue", "2w mon,wed"] {
+        let repeat = parse_event_repeat(spec).unwrap().unwrap();
+        assert_eq!(repeat_spec(&repeat), spec);
+    }
+    assert_eq!(parse_event_repeat("none").unwrap(), None);
+    let r = parse_event_repeat("Tuesday thu").unwrap().unwrap();
+    assert_eq!((r.unit, r.days), (RepeatUnit::Week, vec![2, 4]));
+    assert!(parse_event_repeat("monthly sun").is_err());
+    assert!(parse_event_repeat("0d").is_err());
+    assert!(parse_event_repeat("sometimes").is_err());
+}
+
+#[test]
+fn repeating_events_land_on_their_grid() {
+    // 2026-10-13 is a Tuesday.
+    let weekly = event(1, "2026-10-13", "weekly");
+    assert!(occurs_on(&weekly, d("2026-10-20")));
+    assert!(!occurs_on(&weekly, d("2026-10-21")));
+    assert!(!occurs_on(&weekly, d("2026-10-06")), "nothing before the start");
+
+    let days = event(1, "2026-10-13", "2w sun,tue");
+    assert!(occurs_on(&days, d("2026-10-13")));
+    assert!(!occurs_on(&days, d("2026-10-18")), "sunday of the off week");
+    assert!(occurs_on(&days, d("2026-10-25")));
+    assert!(occurs_on(&days, d("2026-10-27")));
+
+    let monthly = event(1, "2026-01-31", "monthly");
+    assert!(occurs_on(&monthly, d("2026-03-31")));
+    assert!(!occurs_on(&monthly, d("2026-04-30")), "short months are skipped");
+
+    let mut ends = event(1, "2026-10-13", "daily");
+    ends.repeat.as_mut().unwrap().until = Some("2026-10-15".into());
+    ends.skip.push("2026-10-14".into());
+    assert!(occurs_on(&ends, d("2026-10-13")));
+    assert!(!occurs_on(&ends, d("2026-10-14")), "skipped occurrence");
+    assert!(occurs_on(&ends, d("2026-10-15")));
+    assert!(!occurs_on(&ends, d("2026-10-16")), "past until");
+}
+
+#[test]
+fn e_adds_a_repeating_event_with_a_note_through_the_form() {
+    let mut app = calendar_app("2026-10-13");
+    press(&mut app, KeyCode::Char('e'));
+    assert!(matches!(app.mode, Mode::EventForm(_)));
+    type_str(&mut app, "Linear algebra");
+    press(&mut app, KeyCode::Tab);
+    type_str(&mut app, "C-104");
+    press(&mut app, KeyCode::Tab); // date, prefilled with the selected day
+    press(&mut app, KeyCode::Tab);
+    app.handle_key(KeyCode::Char('u'), KeyModifiers::CONTROL);
+    type_str(&mut app, "10:00-11:30");
+    press(&mut app, KeyCode::Tab);
+    app.handle_key(KeyCode::Char('u'), KeyModifiers::CONTROL);
+    type_str(&mut app, "weekly");
+    press(&mut app, KeyCode::Enter);
+
+    assert!(matches!(app.mode, Mode::Normal));
+    let saved = &app.data.calendar_events[0];
+    assert_eq!(saved.note, "C-104");
+    assert_eq!(saved.start_time, "10:00");
+    let next_week = app.calendar_agenda(d("2026-10-20"));
+    assert!(
+        matches!(&next_week[..], [AgendaItem::Event(e)] if e.date == "2026-10-20" && e.title == "Linear algebra")
+    );
+}
+
+#[test]
+fn dd_skips_one_occurrence_and_capital_d_deletes_the_series() {
+    let mut app = calendar_app("2026-10-20");
+    app.data.calendar_events.push(event(1, "2026-10-13", "weekly"));
+    press(&mut app, KeyCode::Char('d'));
+    press(&mut app, KeyCode::Char('d'));
+    assert_eq!(app.data.calendar_events[0].skip, vec!["2026-10-20".to_string()]);
+    assert!(app.calendar_agenda(d("2026-10-27")).len() == 1);
+
+    app.calendar_date = d("2026-10-27");
+    press(&mut app, KeyCode::Char('D'));
+    assert!(app.data.calendar_events.is_empty());
+}
+
+#[test]
+fn editing_a_class_overrides_only_what_changed() {
+    let mut app = calendar_app("2026-10-13");
+    app.calendar_feed = vec![Class {
+        id: "uid-1".into(),
+        title: "אלגברה".into(),
+        date: "2026-10-13".into(),
+        start: "08:30".into(),
+        end: "10:00".into(),
+        note: "C-104".into(),
+    }];
+    press(&mut app, KeyCode::Enter);
+    let Mode::EventForm(form) = &app.mode else { panic!("form should open") };
+    assert_eq!(form.fields[EventForm::NOTE], "C-104", "the room is the default note");
+    press(&mut app, KeyCode::Tab);
+    app.handle_key(KeyCode::Char('u'), KeyModifiers::CONTROL);
+    type_str(&mut app, "C-210 lab");
+    press(&mut app, KeyCode::Enter);
+
+    let edit = &app.data.calendar_class_edits[0];
+    assert_eq!(edit.note.as_deref(), Some("C-210 lab"));
+    assert_eq!((edit.title.clone(), edit.start_time.clone()), (None, None));
+    assert!(matches!(&app.calendar_agenda(d("2026-10-13"))[..], [AgendaItem::Class(c)] if c.note == "C-210 lab"));
+}
+
+#[test]
+fn ctrl_a_applies_a_class_edit_to_every_meeting_of_the_course() {
+    let mut app = calendar_app("2026-10-13");
+    let meeting = |id: &str, date: &str, title: &str| Class {
+        id: id.into(),
+        title: title.into(),
+        date: date.into(),
+        start: "08:30".into(),
+        end: "10:00".into(),
+        note: "C-104".into(),
+    };
+    app.calendar_feed = vec![
+        meeting("a", "2026-10-13", "אלגברה"),
+        meeting("b", "2026-10-20", "אלגברה"),
+        meeting("c", "2026-10-20", "חדו\"א"),
+    ];
+    press(&mut app, KeyCode::Enter);
+    app.handle_key(KeyCode::Char('a'), KeyModifiers::CONTROL);
+    app.handle_key(KeyCode::Char('u'), KeyModifiers::CONTROL);
+    type_str(&mut app, "Algebra");
+    press(&mut app, KeyCode::Enter);
+
+    let titled: Vec<_> = app
+        .data
+        .calendar_class_edits
+        .iter()
+        .map(|e| (e.id.as_str(), e.title.as_deref(), e.note.as_deref()))
+        .collect();
+    assert_eq!(titled, vec![("a", Some("Algebra"), None), ("b", Some("Algebra"), None)]);
+}

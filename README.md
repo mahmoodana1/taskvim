@@ -68,7 +68,7 @@ compiles on distros with older Rust. Building from source takes ~30 s.
 glibc ≥ 2.39: Ubuntu 24.04+, Fedora 40+, Arch. It is **not** tracked in git, so
 a fresh clone won't have one; build from source instead.)
 
-Data: `~/.local/share/taskvim/data.json` (respects `$XDG_DATA_HOME`), format v5.
+Data: `~/.local/share/taskvim/data.json` (respects `$XDG_DATA_HOME`), format v7.
 Older files are migrated automatically on load — existing tasks land in
 *General* and nothing is dropped. Back it up, sync it, edit it by hand — it's
 yours.
@@ -112,11 +112,13 @@ file, so don't run two versions against the same data.
 | `[` / `]` | previous / next month |
 | `t` | jump to today |
 | `a` | add a task due on the selected day (`!date` can override it); add `09:00-10:00` for a time |
-| `e` | add an event: `Team meeting 09:00-10:00` |
-| `s` | set/clear a task time or edit the selected event’s time |
-| `dd` | delete the selected task/event, or hide a Yedion item locally |
+| `e` | new event — opens the event form |
+| `Enter` / `E` / `c` | edit the selected event or class (Enter on a task completes it) |
+| `s` | set/clear a task time or change the selected event’s time |
+| `dd` | delete the selected task/event — just this occurrence if it repeats — or hide a Yedion item locally |
+| `D` | delete every occurrence of a repeating event |
 | `u` / `Ctrl+r` | undo / redo calendar changes |
-| `Enter` | complete a selected task; from week/month opens that day |
+| `Enter` | from week/month opens that day |
 
 Day view shows all 24 hours. Untimed tasks are all-day items; add a time range
 while creating one (`a`) or schedule it later with `s`. Classes, events, and
@@ -124,6 +126,29 @@ timed tasks share the ordered timeline in separate Google Calendar-style colors.
 Overlapping items each get their own colored branch row. Select an item and use
 `dd` to delete it; Yedion entries are hidden locally and can be restored with
 `u` (redo with `Ctrl+r`).
+
+#### Events
+
+The event form has a field per line — `Tab` / `↑↓` move between them,
+`Ctrl+U` clears one, `Enter` saves, `Esc` cancels:
+
+| field | |
+|---|---|
+| title | |
+| note | a short line shown beside the title — a room, a link, anything |
+| date | first day: `2026-10-20` · `10-20` · `+3` · `tomorrow` |
+| time | `HH:MM-HH:MM` |
+| repeat | `none` · `daily` · `weekly` · `2w` · `monthly` · `yearly` · `3d` · `sun,tue` (weekly on those days) · `2w mon,wed` |
+| until | last day it repeats; empty repeats forever |
+
+A repeating event shows `↻`. Editing one changes every occurrence; `dd` skips
+a single day and `D` removes the whole series. Months without the start day
+(the 31st in April) are skipped, as in Google Calendar.
+
+Yedion classes carry their room as their note, beside the course name. Editing
+a class (same form: title, note, time) saves a local change over the feed —
+`Ctrl+A` in the form applies it to every meeting of that course instead of
+just this one. Clearing the title goes back to the Yedion name.
 
 Course meetings, exams, and other academic entries come from your private Yedion
 iCalendar feed. TaskVim refreshes it on startup and with `r` in the calendar;
