@@ -159,12 +159,14 @@ mod tests {
                 name: "Algorithms 2".into(),
                 color: 0,
                 archived: false,
+                extra: Default::default(),
             },
             Project {
                 id: 8,
                 name: "Statistics".into(),
                 color: 1,
                 archived: false,
+                extra: Default::default(),
             },
         ]
     }

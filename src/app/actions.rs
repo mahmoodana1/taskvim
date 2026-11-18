@@ -53,6 +53,7 @@ impl App {
             repeat: None,
             period: None,
             relink: false,
+            extra: Default::default(),
         });
         if pin {
             self.data.dashboard.push(id);
@@ -74,6 +75,7 @@ impl App {
             name,
             color,
             archived: false,
+            extra: Default::default(),
         });
         // A new course is never archived, so it is last in the visible list.
         self.course_sel = self.visible_courses().len().saturating_sub(1);
@@ -155,6 +157,7 @@ impl App {
             id,
             project: pid,
             name,
+            extra: Default::default(),
         });
         self.status = String::from("section added");
         self.focus(pid, Row::Section(id));
@@ -197,6 +200,7 @@ impl App {
                 date: now.format("%Y-%m-%d").to_string(),
                 time: now.format("%H:%M").to_string(),
                 task: Some(tid),
+                extra: Default::default(),
             });
             let done = self.today_count();
             self.status = if done >= self.data.daily_goal {
@@ -892,6 +896,7 @@ impl App {
                     note,
                     repeat,
                     skip: Vec::new(),
+                    extra: Default::default(),
                 });
                 self.status = String::from("event added");
                 id

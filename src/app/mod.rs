@@ -269,9 +269,28 @@ impl App {
     }
 
     pub fn save_quiet(&mut self) {
+        let _ = self.write_merged();
+    }
+
+    /// Save, but if another program wrote the file since we last read it,
+    /// put only our latest edit on top of what it wrote instead of
+    /// overwriting it with our older picture of the board.
+    fn write_merged(&mut self) -> std::io::Result<()> {
+        // The board as of our last load or save: what our edit started from.
+        let base = self.saved_snapshot.clone();
         self.checkpoint();
-        let _ = self.data.save();
+        // disk_mtime is None for an App built around data not read from disk (tests).
+        if self.disk_mtime.is_some() && Self::data_mtime() != self.disk_mtime {
+            if let Ok(Some(theirs)) = Data::try_load() {
+                // shortcut: an id both sides created in the same instant keeps ours; the sync service renumbers cross-machine ones
+                self.data = Data::merge(&base, &self.data, &theirs);
+                self.saved_snapshot = self.data.clone();
+                self.clamp();
+            }
+        }
+        let saved = self.data.save();
         self.disk_mtime = Self::data_mtime();
+        saved
     }
 
     fn data_mtime() -> Option<std::time::SystemTime> {
@@ -287,9 +306,16 @@ impl App {
         if mtime.is_none() || mtime == self.disk_mtime {
             return;
         }
+        // Mid-write or broken: leave disk_mtime alone so the next loop retries.
+        let Ok(Some(fresh)) = Data::try_load() else {
+            return;
+        };
         self.disk_mtime = mtime;
-        let fresh = Data::load();
-        if fresh != self.data {
+        if fresh.without_sync_stamps() == self.data.without_sync_stamps() {
+            // Only taskvim-sync's bookkeeping changed: take it, keep undo.
+            self.data = fresh;
+            self.saved_snapshot = self.data.clone();
+        } else if fresh != self.data {
             self.data = fresh;
             self.saved_snapshot = self.data.clone();
             self.undo_stack.clear();
@@ -300,10 +326,7 @@ impl App {
     }
 
     pub fn save(&mut self) {
-        self.checkpoint();
-        let saved = self.data.save();
-        self.disk_mtime = Self::data_mtime();
-        match saved {
+        match self.write_merged() {
             Ok(_) => self.status = format!("written to {}", Data::path().display()),
             Err(e) => self.status = format!("save failed: {}", e),
         }

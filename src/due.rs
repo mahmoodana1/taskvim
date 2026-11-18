@@ -111,6 +111,7 @@ pub fn parse_repeat(spec: &str, anchor: &str) -> Result<Option<Repeat>, ()> {
             every,
             unit,
             anchor: anchor.to_string(),
+            extra: Default::default(),
         }))
     };
     match s.as_str() {
@@ -325,6 +326,7 @@ mod tests {
             every,
             unit,
             anchor: anchor.to_string(),
+            extra: Default::default(),
         }
     }
 

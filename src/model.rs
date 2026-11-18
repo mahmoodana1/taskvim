@@ -8,6 +8,9 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+/// Unknown JSON keys of a record, carried through load and save untouched.
+pub type Extra = serde_json::Map<String, serde_json::Value>;
+
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct Task {
     pub id: u64,
@@ -40,6 +43,11 @@ pub struct Task {
     /// task it belongs to.
     #[serde(default)]
     pub relink: bool,
+
+    /// Fields this build does not know (newer builds, other programs, sync
+    /// stamps). Kept so a save never deletes them.
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -57,6 +65,11 @@ pub struct Repeat {
     pub every: u32,
     pub unit: RepeatUnit,
     pub anchor: String, // YYYY-MM-DD
+
+    /// Fields this build does not know (newer builds, other programs, sync
+    /// stamps). Kept so a save never deletes them.
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 impl Repeat {
@@ -108,6 +121,11 @@ pub struct Section {
     pub id: u64,
     pub project: u64,
     pub name: String,
+
+    /// Fields this build does not know (newer builds, other programs, sync
+    /// stamps). Kept so a save never deletes them.
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
@@ -120,6 +138,11 @@ pub struct Project {
     /// own progress.
     #[serde(default)]
     pub archived: bool,
+
+    /// Fields this build does not know (newer builds, other programs, sync
+    /// stamps). Kept so a save never deletes them.
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
@@ -139,6 +162,11 @@ pub struct LogEntry {
     /// migrated from v2, which predate the link — see `sanitize`.
     #[serde(default)]
     pub task: Option<u64>,
+
+    /// Fields this build does not know (newer builds, other programs, sync
+    /// stamps). Kept so a save never deletes them.
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
@@ -157,6 +185,11 @@ pub struct CalendarEvent {
     /// Occurrences of a repeating event deleted one by one (YYYY-MM-DD).
     #[serde(default)]
     pub skip: Vec<String>,
+
+    /// Fields this build does not know (newer builds, other programs, sync
+    /// stamps). Kept so a save never deletes them.
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 /// How a calendar event repeats from its `date`, Google Calendar style.
@@ -171,6 +204,11 @@ pub struct EventRepeat {
     /// Last day an occurrence may fall on (YYYY-MM-DD); `None` repeats forever.
     #[serde(default)]
     pub until: Option<String>,
+
+    /// Fields this build does not know (newer builds, other programs, sync
+    /// stamps). Kept so a save never deletes them.
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 /// Local changes to one entry of the read-only Yedion feed, keyed by its UID.
@@ -186,6 +224,11 @@ pub struct ClassEdit {
     pub start_time: Option<String>,
     #[serde(default)]
     pub end_time: Option<String>,
+
+    /// Fields this build does not know (newer builds, other programs, sync
+    /// stamps). Kept so a save never deletes them.
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 /// How many colours courses cycle through when assigned automatically.
@@ -215,6 +258,11 @@ pub struct Data {
     pub daily_goal: u32,
     pub next_id: u64,
     pub next_color: usize,
+
+    /// Fields this build does not know (newer builds, other programs, sync
+    /// stamps). Kept so a save never deletes them.
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 impl Data {
@@ -223,7 +271,8 @@ impl Data {
         // and Syncthing carries any overwrite to every other machine.
         if cfg!(test) {
             return std::env::temp_dir()
-                .join(format!("taskvim-test-{}", std::process::id()))
+                // one file per test thread: saves merge with what is on disk
+                .join(format!("taskvim-test-{}-{:?}", std::process::id(), std::thread::current().id()))
                 .join("data.json");
         }
         dirs::data_dir()
@@ -232,21 +281,134 @@ impl Data {
             .join("data.json")
     }
 
+    /// The file as it is now. `Ok(None)` only when there is no file yet; a
+    /// file that does not parse is an error, never an empty board: treating
+    /// it as empty and saving once would wipe every machine through Syncthing.
+    pub fn try_load() -> io::Result<Option<Data>> {
+        let s = match fs::read_to_string(Self::path()) {
+            Ok(s) => s,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        let mut d: Data = serde_json::from_str(&s)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        d.sanitize();
+        Ok(Some(d))
+    }
+
+    /// Startup load. A file caught mid-write gets a few retries; one that
+    /// stays unreadable stops taskvim instead of opening (and later saving)
+    /// an empty board over it.
     pub fn load() -> Data {
-        let mut d: Data = fs::read_to_string(Self::path())
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        for _ in 0..10 {
+            match Self::try_load() {
+                Ok(Some(d)) => return d,
+                Ok(None) => {
+                    let mut d = Data::default();
+                    d.sanitize();
+                    return d;
+                }
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(200)),
+            }
+        }
+        eprintln!(
+            "taskvim: {} does not parse; not opening it so nothing overwrites it",
+            Self::path().display()
+        );
+        std::process::exit(1);
+    }
+
+    /// Write through a temp file and a rename, so no reader (Syncthing, the
+    /// subscreen agent, dojo) ever sees half a file.
+    pub fn save(&self) -> io::Result<()> {
+        let p = Self::path();
+        let dir = p.parent().map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+        fs::create_dir_all(&dir)?;
+        let json = serde_json::to_string_pretty(self)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let tmp = dir.join(format!(".data.json.taskvim-{}", std::process::id()));
+        fs::write(&tmp, json)?;
+        fs::rename(&tmp, &p)
+    }
+
+    /// Three-way merge: the changes `ours` made since `base`, applied on top
+    /// of `theirs` (the file as another program left it). Records are matched
+    /// by `id` in every top-level list of objects, so lists added later merge
+    /// too; any other top-level value takes ours only where we changed it.
+    pub fn merge(base: &Data, ours: &Data, theirs: &Data) -> Data {
+        use serde_json::Value;
+        let v = |d: &Data| serde_json::to_value(d).unwrap_or(Value::Null);
+        let (b, o, mut t) = (v(base), v(ours), v(theirs));
+        let (Some(b), Some(o), Some(tm)) = (b.as_object(), o.as_object(), t.as_object_mut())
+        else {
+            return ours.clone();
+        };
+        let keys: Vec<String> = o.keys().chain(b.keys()).cloned().collect();
+        for k in keys {
+            let (bk, ok) = (b.get(&k), o.get(&k));
+            if bk == ok {
+                continue;
+            }
+            let lists = (
+                bk.and_then(record_list),
+                ok.and_then(record_list),
+                tm.get(&k).and_then(record_list),
+            );
+            match lists {
+                (Some(bl), Some(ol), Some(mut tl)) => {
+                    for (id, rec) in &bl {
+                        match ol.iter().find(|(i, _)| i == id) {
+                            None => tl.retain(|(i, _)| i != id),
+                            Some((_, orec)) if orec != rec => replace_or_push(&mut tl, id, orec),
+                            Some(_) => {}
+                        }
+                    }
+                    for (id, orec) in &ol {
+                        if !bl.iter().any(|(i, _)| i == id) {
+                            replace_or_push(&mut tl, id, orec);
+                        }
+                    }
+                    tm.insert(k, Value::Array(tl.into_iter().map(|(_, r)| r).collect()));
+                }
+                _ => match (bk, ok, tm.get(&k)) {
+                    // A plain list both sides edited (the dashboard order):
+                    // ours, plus what they added, minus what they removed.
+                    (Some(Value::Array(bl)), Some(Value::Array(ol)), Some(Value::Array(tl))) => {
+                        let mut out: Vec<Value> =
+                            ol.iter().filter(|x| !bl.contains(x) || tl.contains(x)).cloned().collect();
+                        for x in tl {
+                            if !bl.contains(x) && !out.contains(x) {
+                                out.push(x.clone());
+                            }
+                        }
+                        tm.insert(k, Value::Array(out));
+                    }
+                    (_, Some(ov), _) => {
+                        tm.insert(k, ov.clone());
+                    }
+                    _ => {}
+                },
+            }
+        }
+        let mut d: Data = serde_json::from_value(t).unwrap_or_else(|_| ours.clone());
         d.sanitize();
         d
     }
 
-    pub fn save(&self) -> io::Result<()> {
-        let p = Self::path();
-        if let Some(dir) = p.parent() {
-            fs::create_dir_all(dir)?;
+    /// This board without the stamps taskvim-sync adds (`_m`/`_c` on
+    /// records, `_sync` on top), to tell its bookkeeping from real edits.
+    pub fn without_sync_stamps(&self) -> serde_json::Value {
+        let mut v = serde_json::to_value(self).unwrap_or_default();
+        if let Some(top) = v.as_object_mut() {
+            top.remove("_sync");
+            for list in top.values_mut().filter_map(|x| x.as_array_mut()) {
+                for r in list.iter_mut().filter_map(|x| x.as_object_mut()) {
+                    r.remove("_m");
+                    r.remove("_c");
+                }
+            }
         }
-        fs::write(p, serde_json::to_string_pretty(self).unwrap_or_default())
+        v
     }
 
     pub fn new_id(&mut self) -> u64 {
@@ -357,9 +519,68 @@ impl Data {
     }
 }
 
+/// A list of objects that all carry an `id`, as (id, record) pairs.
+fn record_list(v: &serde_json::Value) -> Option<Vec<(serde_json::Value, serde_json::Value)>> {
+    let a = v.as_array()?;
+    if a.is_empty() {
+        return Some(Vec::new());
+    }
+    a.iter()
+        .map(|r| Some((r.as_object()?.get("id")?.clone(), r.clone())))
+        .collect()
+}
+
+fn replace_or_push(
+    list: &mut Vec<(serde_json::Value, serde_json::Value)>,
+    id: &serde_json::Value,
+    rec: &serde_json::Value,
+) {
+    match list.iter_mut().find(|(i, _)| i == id) {
+        Some(slot) => slot.1 = rec.clone(),
+        None => list.push((id.clone(), rec.clone())),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn data(j: &str) -> Data {
+        serde_json::from_str(j).unwrap()
+    }
+
+    #[test]
+    fn unknown_fields_survive_a_round_trip() {
+        let d = data(
+            r#"{"tasks":[{"id":1,"text":"a","_m":5,"future":{"x":1}}],"projects":[],"log":[],
+                "daily_goal":2,"next_id":2,"next_color":0,"_sync":{"del":{}}}"#,
+        );
+        let s = serde_json::to_string(&d).unwrap();
+        assert!(s.contains("\"_m\":5") && s.contains("\"future\"") && s.contains("\"_sync\""), "{s}");
+    }
+
+    #[test]
+    fn merge_keeps_both_sides_edits() {
+        let base = data(r#"{"version":7,"tasks":[{"id":1,"text":"a"},{"id":2,"text":"b"}],"projects":[],"log":[],
+            "dashboard":[1,2],"daily_goal":2,"next_id":3,"next_color":0}"#);
+        // we ticked 1, added 3 and dropped 2 from the dashboard
+        let mut ours = base.clone();
+        ours.tasks[0].completed = true;
+        ours.tasks.push(data(r#"{"version":7,"tasks":[{"id":3,"text":"c"}],"projects":[],"log":[],"daily_goal":2,"next_id":4,"next_color":0}"#).tasks[0].clone());
+        ours.dashboard = vec![1, 3];
+        ours.next_id = 4;
+        // meanwhile the phone renamed 2, added 4 and put it on the dashboard
+        let theirs = data(r#"{"version":7,"tasks":[{"id":1,"text":"a"},{"id":2,"text":"B"},{"id":4,"text":"d"}],
+            "projects":[],"log":[],"dashboard":[1,2,4],"daily_goal":2,"next_id":5,"next_color":0}"#);
+        let m = Data::merge(&base, &ours, &theirs);
+        let t = |id| m.tasks.iter().find(|t| t.id == id).unwrap();
+        assert!(t(1).completed);
+        assert_eq!(t(2).text, "B");
+        assert_eq!(t(3).text, "c");
+        assert_eq!(t(4).text, "d");
+        assert_eq!(m.dashboard, vec![1, 3, 4]);
+        assert!(m.next_id >= 5);
+    }
 
     fn v2_json() -> &'static str {
         r#"{
@@ -424,6 +645,7 @@ mod tests {
             name: "Statistics".into(),
             color: 0,
             archived: true,
+            extra: Default::default(),
         });
         d.tasks[0].relink = true;
 
