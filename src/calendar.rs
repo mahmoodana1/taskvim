@@ -460,6 +460,7 @@ pub fn parse_event_repeat(spec: &str) -> Result<Option<EventRepeat>, ()> {
         unit,
         days,
         until: None,
+        extra: Default::default(),
     }))
 }
 

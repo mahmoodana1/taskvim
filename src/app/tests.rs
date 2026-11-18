@@ -34,6 +34,7 @@ pub fn task(id: u64, text: &str) -> Task {
         repeat: None,
         period: None,
         relink: false,
+        extra: Default::default(),
     }
 }
 
@@ -295,6 +296,7 @@ fn habit(id: u64, text: &str, every: u32, unit: RepeatUnit, anchor: &str) -> cra
         every,
         unit,
         anchor: anchor.to_string(),
+        extra: Default::default(),
     });
     t
 }
@@ -446,6 +448,7 @@ fn habits_are_excluded_from_course_progress() {
         name: "Algorithms 2".into(),
         color: 0,
         archived: false,
+        extra: Default::default(),
     });
 
     let mut one_off = task(1, "lecture 7");
@@ -490,6 +493,7 @@ fn setting_a_repeat_clears_an_existing_due_date() {
             every: 1,
             unit: RepeatUnit::Day,
             anchor: "2026-08-26".to_string(),
+            extra: Default::default(),
         }),
     );
 
@@ -585,6 +589,7 @@ fn course(id: u64, name: &str) -> crate::model::Project {
         name: name.to_string(),
         color: 0,
         archived: false,
+        extra: Default::default(),
     }
 }
 
@@ -736,6 +741,7 @@ fn event(id: u64, date: &str, repeat: &str) -> CalendarEvent {
         note: String::new(),
         repeat: parse_event_repeat(repeat).unwrap(),
         skip: Vec::new(),
+        extra: Default::default(),
     }
 }
 
